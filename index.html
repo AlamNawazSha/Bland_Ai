@@ -1,0 +1,1372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SpatialVision AI — Object & Step Estimator</title>
+    <!-- Modern Typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- TensorFlow.js & COCO-SSD via CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --bg-panel: rgba(18, 24, 38, 0.75);
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --accent-cyan: #00f2fe;
+            --accent-emerald: #00f5a0;
+            --accent-gold: #ffb703;
+            --accent-rose: #ff2a6d;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-glass: rgba(255, 255, 255, 0.12);
+            --radius-lg: 20px;
+            --radius-md: 12px;
+            --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg-dark);
+            font-family: var(--font-main);
+            color: var(--text-main);
+        }
+
+        /* App Container */
+        .app-viewport {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            background: radial-gradient(circle at center, #131b2e 0%, #060911 100%);
+        }
+
+        /* Camera Feed & Canvas Overlay */
+        .stage-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        video#webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(1); /* Updated via JS if front camera */
+        }
+
+        canvas#hud-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* Top HUD Bar */
+        .top-hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            background: linear-gradient(to bottom, rgba(9, 13, 22, 0.85) 0%, rgba(9, 13, 22, 0) 100%);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+
+        .brand-pill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            padding: 8px 16px;
+            border-radius: 30px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-rose);
+            box-shadow: 0 0 10px var(--accent-rose);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.active {
+            background: var(--accent-emerald);
+            box-shadow: 0 0 10px var(--accent-emerald);
+        }
+
+        .brand-title {
+            font-weight: 700;
+            font-size: 15px;
+            letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #ffffff 0%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hud-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .icon-btn {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            cursor: pointer;
+            backdrop-filter: blur(12px);
+            transition: all 0.2s ease;
+        }
+
+        .icon-btn:active {
+            transform: scale(0.92);
+            background: var(--accent-cyan);
+            color: var(--bg-dark);
+        }
+
+        /* Floating Closest Object Telemetry Card */
+        .bottom-hud {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            padding: 20px;
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            background: linear-gradient(to top, rgba(9, 13, 22, 0.95) 0%, rgba(9, 13, 22, 0.4) 70%, rgba(9, 13, 22, 0) 100%);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .target-card {
+            background: var(--bg-panel);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            border-radius: var(--radius-lg);
+            padding: 16px 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 15px rgba(0, 242, 254, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .target-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(to bottom, var(--accent-cyan), var(--accent-emerald));
+        }
+
+        .target-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .target-tag {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--accent-cyan);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .target-label {
+            font-size: 22px;
+            font-weight: 800;
+            color: #ffffff;
+            text-transform: capitalize;
+        }
+
+        .target-metrics {
+            display: flex;
+            align-items: baseline;
+            gap: 16px;
+            text-align: right;
+        }
+
+        .metric-group {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .metric-value {
+            font-family: var(--font-mono);
+            font-size: 28px;
+            font-weight: 800;
+            color: var(--accent-gold);
+            line-height: 1;
+        }
+
+        .metric-unit {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        .secondary-metrics {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 4px;
+        }
+
+        .badge-pill {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border-glass);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-pill span {
+            color: var(--text-main);
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+
+        .calibration-alert {
+            background: rgba(255, 183, 3, 0.15);
+            border: 1px solid rgba(255, 183, 3, 0.4);
+            color: var(--accent-gold);
+            padding: 10px 14px;
+            border-radius: var(--radius-md);
+            font-size: 12.5px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+
+        /* Drawers & Modals */
+        .drawer-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(6px);
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .drawer-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .drawer-panel {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            max-height: 85vh;
+            background: #0f172a;
+            border-top: 1px solid var(--border-glass);
+            border-radius: 24px 24px 0 0;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+        }
+
+        .drawer-overlay.open .drawer-panel {
+            transform: translateY(0);
+        }
+
+        .drawer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-glass);
+            padding-bottom: 14px;
+        }
+
+        .drawer-title {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--accent-cyan);
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .form-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .form-label span.val {
+            color: var(--accent-cyan);
+            font-family: var(--font-mono);
+        }
+
+        .range-slider {
+            width: 100%;
+            accent-color: var(--accent-cyan);
+            height: 6px;
+            border-radius: 3px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .segmented-control {
+            display: flex;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            padding: 4px;
+            gap: 4px;
+        }
+
+        .segment-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .segment-btn.active {
+            background: var(--accent-cyan);
+            color: var(--bg-dark);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            border-radius: var(--radius-md);
+            border: none;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, #00b4d8 100%);
+            color: var(--bg-dark);
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
+        }
+
+        .btn-secondary {
+            width: 100%;
+            padding: 12px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-glass);
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-main);
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
+        /* Calibration Modal Wizard */
+        .step-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .step-num {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: var(--accent-cyan);
+            color: var(--bg-dark);
+            font-size: 12px;
+            font-weight: 800;
+            margin-right: 6px;
+        }
+
+        /* Loading Overlay */
+        .loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #090d16;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(0, 242, 254, 0.15);
+            border-top: 4px solid var(--accent-cyan);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-muted);
+            letter-spacing: 0.5px;
+        }
+
+        /* Pulse glow animation for reticle */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(0, 242, 254, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Main Viewport -->
+    <div class="app-viewport">
+
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="loading-screen">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loading-status">Initializing TensorFlow.js & COCO-SSD...</div>
+        </div>
+
+        <!-- Camera Stage & Canvas Overlay -->
+        <div class="stage-container">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="hud-canvas"></canvas>
+        </div>
+
+        <!-- Top Navigation HUD -->
+        <div class="top-hud">
+            <div class="brand-pill">
+                <div class="status-dot" id="status-dot"></div>
+                <span class="brand-title">SPATIAL VISION AI</span>
+            </div>
+            <div class="hud-actions">
+                <button class="icon-btn" id="btn-toggle-voice" title="Toggle Voice Guidance">
+                    <i class="fa-solid fa-volume-high" id="icon-voice"></i>
+                </button>
+                <button class="icon-btn" id="btn-switch-cam" title="Switch Camera">
+                    <i class="fa-solid fa-camera-rotate"></i>
+                </button>
+                <button class="icon-btn" id="btn-calibrate" title="Calibrate Distance">
+                    <i class="fa-solid fa-crosshairs"></i>
+                </button>
+                <button class="icon-btn" id="btn-settings" title="Settings">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Bottom Telemetry HUD -->
+        <div class="bottom-hud">
+            <!-- Calibration Warning Banner -->
+            <div class="calibration-alert" id="calib-banner" onclick="app.openCalibrationModal()">
+                <span><i class="fa-solid fa-triangle-exclamation"></i> Using default camera optics. Tap to calibrate focal length.</span>
+                <i class="fa-solid fa-chevron-right"></i>
+            </div>
+
+            <!-- Target Primary Metrics Card -->
+            <div class="target-card" id="target-card" style="cursor: pointer;" title="Tap to hear voice announcement">
+                <div class="target-info">
+                    <div class="target-tag"><i class="fa-solid fa-bullseye"></i> Closest Target</div>
+                    <div class="target-label" id="closest-label">Scanning...</div>
+                    <div style="font-size: 11.5px; font-weight: 700; color: var(--accent-gold); display: flex; align-items: center; gap: 6px; margin-top: 4px;" id="direction-badge-container">
+                        <i class="fa-solid fa-compass" id="dir-icon"></i> <span id="closest-direction">--</span>
+                    </div>
+                </div>
+                <div class="target-metrics">
+                    <div class="metric-group">
+                        <div class="metric-value" id="closest-steps">--</div>
+                        <div class="metric-unit">Steps Away</div>
+                    </div>
+                    <div class="metric-group" style="margin-left: 14px;">
+                        <div class="metric-value" id="closest-dist" style="color: var(--accent-cyan);">--</div>
+                        <div class="metric-unit" id="unit-label">Meters</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Secondary Telemetry Pills -->
+            <div class="secondary-metrics">
+                <div class="badge-pill">
+                    <i class="fa-solid fa-cubes"></i> Objects: <span id="telemetry-count">0</span>
+                </div>
+                <div class="badge-pill">
+                    <i class="fa-solid fa-compass"></i> Dir: <span id="telemetry-dir" style="color: var(--accent-gold);">--</span>
+                </div>
+                <div class="badge-pill">
+                    <i class="fa-solid fa-shoe-prints"></i> Stride: <span id="telemetry-stride">0.72m</span>
+                </div>
+                <div class="badge-pill">
+                    <i class="fa-solid fa-bolt"></i> FPS: <span id="telemetry-fps">--</span>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Settings Drawer -->
+    <div class="drawer-overlay" id="drawer-settings">
+        <div class="drawer-panel">
+            <div class="drawer-header">
+                <div class="drawer-title"><i class="fa-solid fa-sliders"></i> System Settings</div>
+                <button class="icon-btn" onclick="app.closeDrawers()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">
+                    <span>Voice Guidance Audio</span>
+                    <span class="val" id="lbl-voice-status">Enabled</span>
+                </div>
+                <div class="segmented-control">
+                    <button class="segment-btn active" id="btn-voice-on" onclick="app.setVoiceEnabled(true)">Voice ON</button>
+                    <button class="segment-btn" id="btn-voice-off" onclick="app.setVoiceEnabled(false)">Mute</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">
+                    <span>Announcement Cooldown Interval</span>
+                    <span class="val" id="lbl-interval-val">4 sec</span>
+                </div>
+                <input type="range" class="range-slider" id="slider-interval" min="2" max="10" step="1" value="4">
+            </div>
+
+            <button class="btn-secondary" onclick="app.testVoiceAnnouncement()" style="margin-bottom: 4px;">
+                <i class="fa-solid fa-volume-high"></i> Test Voice Announcement
+            </button>
+
+            <div class="form-group">
+                <div class="form-label">
+                    <span>Average Step Length (Stride)</span>
+                    <span class="val" id="lbl-stride-val">0.72 m</span>
+                </div>
+                <input type="range" class="range-slider" id="slider-stride" min="0.40" max="1.10" step="0.01" value="0.72">
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">Measurement Unit</div>
+                <div class="segmented-control">
+                    <button class="segment-btn active" id="unit-m" onclick="app.setUnit('m')">Meters (m)</button>
+                    <button class="segment-btn" id="unit-ft" onclick="app.setUnit('ft')">Feet (ft)</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">
+                    <span>Detection Threshold</span>
+                    <span class="val" id="lbl-thresh-val">50%</span>
+                </div>
+                <input type="range" class="range-slider" id="slider-thresh" min="0.30" max="0.85" step="0.05" value="0.50">
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">
+                    <span>Camera Focal Length (Pixels)</span>
+                    <span class="val" id="lbl-focal-val">700 px</span>
+                </div>
+                <input type="range" class="range-slider" id="slider-focal" min="300" max="1500" step="10" value="700">
+            </div>
+
+            <button class="btn-primary" onclick="app.openCalibrationModal(); app.closeDrawers();">
+                <i class="fa-solid fa-crosshairs"></i> Run Distance Calibration Wizard
+            </button>
+
+            <button class="btn-secondary" onclick="app.resetSettings()">
+                Reset to Factory Defaults
+            </button>
+        </div>
+    </div>
+
+    <!-- Calibration Modal -->
+    <div class="drawer-overlay" id="modal-calibration">
+        <div class="drawer-panel">
+            <div class="drawer-header">
+                <div class="drawer-title"><i class="fa-solid fa-crosshairs"></i> Focal Length Calibration</div>
+                <button class="icon-btn" onclick="app.closeDrawers()"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.5;">
+                Monocular distance estimation requires calibrating your phone's camera focal length.
+            </p>
+
+            <div class="step-card">
+                <div class="form-label"><span class="step-num">1</span> Stand at a known distance from an object</div>
+                <div class="form-group" style="margin-top: 6px;">
+                    <div class="form-label">Distance to Target Object</div>
+                    <div class="segmented-control">
+                        <button class="segment-btn active" onclick="app.setCalibDist(1.0, this)">1.0 m</button>
+                        <button class="segment-btn" onclick="app.setCalibDist(1.5, this)">1.5 m</button>
+                        <button class="segment-btn" onclick="app.setCalibDist(2.0, this)">2.0 m</button>
+                        <button class="segment-btn" onclick="app.setCalibDist(3.0, this)">3.0 m</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="step-card">
+                <div class="form-label"><span class="step-num">2</span> Select Reference Object Class</div>
+                <select id="calib-object-select" style="width: 100%; padding: 10px; border-radius: 8px; background: rgba(255,255,255,0.08); border: 1px solid var(--border-glass); color: #fff; font-family: var(--font-main);">
+                    <option value="person">Person (Avg height: 1.70m)</option>
+                    <option value="chair">Chair (Avg height: 0.85m)</option>
+                    <option value="bottle">Bottle (Avg height: 0.25m)</option>
+                    <option value="laptop">Laptop (Avg width: 0.35m)</option>
+                    <option value="cell phone">Cell Phone (Avg height: 0.15m)</option>
+                    <option value="cup">Cup (Avg height: 0.12m)</option>
+                </select>
+            </div>
+
+            <div class="step-card">
+                <div class="form-label"><span class="step-num">3</span> Point camera directly at object & Calibrate</div>
+                <p style="font-size: 12px; color: var(--text-muted);">Ensure the object is fully visible on screen.</p>
+                <button class="btn-primary" onclick="app.executeCalibration()">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Calibrate Now
+                </button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- JavaScript Core Logic -->
+    <script>
+        /*
+        ================================================================================
+        SPATIAL VISION AI - ARCHITECTURE & RASPBERRY PI / OPENCV MIGRATION GUIDE
+        ================================================================================
+        This application uses TensorFlow.js COCO-SSD and Pinhole Camera Math to estimate
+        object distances in real time and calculate required steps.
+
+        PYTHON / OPENCV MIGRATION CORRESPONDENCE FOR RASPBERRY PI:
+        --------------------------------------------------------------------------------
+        1. CAMERA FEED:
+           JS: navigator.mediaDevices.getUserMedia()
+           Python: cap = cv2.VideoCapture(0)
+
+        2. MODEL INFERENCE:
+           JS: cocoSsd.load(), model.detect(video)
+           Python: 
+               from ultralytics import YOLO
+               model = YOLO('yolov8n.pt')
+               results = model(frame)
+
+        3. PINHOLE DISTANCE FORMULA:
+           Formula: Distance (m) = (RealObjectSize * FocalLength) / PixelSizeOnScreen
+           Python Function:
+               def estimate_distance(real_size, focal_length, bbox_pixels):
+                   return (real_size * focal_length) / max(bbox_pixels, 1)
+
+        4. DRAWING OVERLAYS:
+           JS: canvasContext.strokeRect(), fillText()
+           Python:
+               cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
+               cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        ================================================================================
+        */
+
+        // Real-world physical dimensions (meters) lookup table for common COCO-SSD classes
+        const REAL_WORLD_SIZES = {
+            'person':      { size: 1.70, dimension: 'height', label: 'Person' },
+            'chair':       { size: 0.85, dimension: 'height', label: 'Chair' },
+            'couch':       { size: 0.90, dimension: 'height', label: 'Sofa' },
+            'bottle':      { size: 0.25, dimension: 'height', label: 'Bottle' },
+            'cup':         { size: 0.12, dimension: 'height', label: 'Cup' },
+            'laptop':      { size: 0.35, dimension: 'width',  label: 'Laptop' },
+            'car':         { size: 1.50, dimension: 'height', label: 'Car' },
+            'cell phone':  { size: 0.15, dimension: 'height', label: 'Phone' },
+            'tv':          { size: 0.55, dimension: 'height', label: 'TV/Monitor' },
+            'book':        { size: 0.25, dimension: 'height', label: 'Book' },
+            'backpack':    { size: 0.45, dimension: 'height', label: 'Backpack' },
+            'dog':         { size: 0.50, dimension: 'height', label: 'Dog' },
+            'cat':         { size: 0.30, dimension: 'height', label: 'Cat' },
+            'keyboard':    { size: 0.45, dimension: 'width',  label: 'Keyboard' },
+            'mouse':       { size: 0.11, dimension: 'height', label: 'Mouse' },
+            'clock':       { size: 0.30, dimension: 'height', label: 'Clock' },
+            'potted plant':{ size: 0.40, dimension: 'height', label: 'Plant' },
+            'umbrella':    { size: 0.85, dimension: 'height', label: 'Umbrella' },
+            'suitcase':    { size: 0.60, dimension: 'height', label: 'Suitcase' },
+            'bicycle':     { size: 1.00, dimension: 'height', label: 'Bicycle' },
+            'motorcycle':  { size: 1.10, dimension: 'height', label: 'Motorcycle' },
+            'default':     { size: 0.50, dimension: 'max',    label: 'Object' }
+        };
+
+        class SpatialVisionApp {
+            constructor() {
+                // Config State (Loaded from localStorage if available)
+                this.config = {
+                    focalLength: 700,        // Camera focal length in pixels (default estimate)
+                    stepLength: 0.72,        // Average human step length in meters
+                    unit: 'm',               // 'm' (meters) or 'ft' (feet)
+                    confidenceThresh: 0.50,  // Minimum object detection confidence score
+                    isCalibrated: false,
+                    facingMode: 'environment', // Rear camera default for mobile
+                    voiceEnabled: true,      // Voice announcement toggle
+                    voiceInterval: 4         // Announcement interval in seconds
+                };
+
+                // Calibration state
+                this.calibrationTargetDistance = 2.0; // default 2.0 meters
+
+                // Speech state tracking
+                this.lastSpeechTime = 0;
+                this.lastSpokenTarget = null;
+
+                // DOM Elements
+                this.video = document.getElementById('webcam');
+                this.canvas = document.getElementById('hud-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.loadingScreen = document.getElementById('loading-screen');
+                this.loadingStatus = document.getElementById('loading-status');
+                this.statusDot = document.getElementById('status-dot');
+
+                // Model & Inference
+                this.model = null;
+                this.isDetecting = false;
+                this.lastDetections = [];
+
+                // Performance Metrics
+                this.fps = 0;
+                this.frameCount = 0;
+                this.lastFpsTime = performance.now();
+
+                this.init();
+            }
+
+            async init() {
+                this.loadSavedConfig();
+                this.bindEvents();
+
+                try {
+                    // Step 1: Initialize Camera
+                    this.updateLoadingStatus("Accessing device camera...");
+                    await this.setupCamera();
+
+                    // Step 2: Load COCO-SSD Model
+                    this.updateLoadingStatus("Loading COCO-SSD AI Model...");
+                    this.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
+
+                    // Hide Loading Screen
+                    this.loadingScreen.style.opacity = '0';
+                    setTimeout(() => this.loadingScreen.style.display = 'none', 500);
+                    this.statusDot.classList.add('active');
+
+                    // Step 3: Start Real-time Detection Loop
+                    this.isDetecting = true;
+                    this.detectLoop();
+                } catch (error) {
+                    console.error("Initialization error:", error);
+                    this.loadingStatus.innerText = "Error: " + error.message;
+                    this.loadingStatus.style.color = "#ff2a6d";
+                }
+            }
+
+            loadSavedConfig() {
+                const saved = localStorage.getItem('spatial_ai_config');
+                if (saved) {
+                    try {
+                        const parsed = JSON.parse(saved);
+                        this.config = { ...this.config, ...parsed };
+                    } catch (e) {
+                        console.warn("Could not parse saved config");
+                    }
+                }
+                this.updateUIFromConfig();
+            }
+
+            saveConfig() {
+                localStorage.setItem('spatial_ai_config', JSON.stringify(this.config));
+                this.updateUIFromConfig();
+            }
+
+            updateUIFromConfig() {
+                document.getElementById('lbl-stride-val').innerText = `${this.config.stepLength.toFixed(2)} m`;
+                document.getElementById('slider-stride').value = this.config.stepLength;
+
+                document.getElementById('lbl-thresh-val').innerText = `${Math.round(this.config.confidenceThresh * 100)}%`;
+                document.getElementById('slider-thresh').value = this.config.confidenceThresh;
+
+                document.getElementById('lbl-focal-val').innerText = `${Math.round(this.config.focalLength)} px`;
+                document.getElementById('slider-focal').value = this.config.focalLength;
+
+                document.getElementById('lbl-voice-status').innerText = this.config.voiceEnabled ? 'Enabled' : 'Muted';
+                document.getElementById('lbl-interval-val').innerText = `${this.config.voiceInterval} sec`;
+                document.getElementById('slider-interval').value = this.config.voiceInterval;
+
+                document.getElementById('btn-voice-on').classList.toggle('active', this.config.voiceEnabled);
+                document.getElementById('btn-voice-off').classList.toggle('active', !this.config.voiceEnabled);
+
+                const iconVoice = document.getElementById('icon-voice');
+                if (iconVoice) {
+                    iconVoice.className = this.config.voiceEnabled ? 'fa-solid fa-volume-high' : 'fa-solid fa-volume-xmark';
+                    iconVoice.style.color = this.config.voiceEnabled ? 'var(--text-main)' : 'var(--accent-rose)';
+                }
+
+                document.getElementById('telemetry-stride').innerText = `${this.config.stepLength.toFixed(2)}m`;
+                document.getElementById('unit-label').innerText = this.config.unit === 'm' ? 'Meters' : 'Feet';
+
+                // Segmented control active states
+                document.getElementById('unit-m').classList.toggle('active', this.config.unit === 'm');
+                document.getElementById('unit-ft').classList.toggle('active', this.config.unit === 'ft');
+
+                // Calibration banner state
+                document.getElementById('calib-banner').style.display = this.config.isCalibrated ? 'none' : 'flex';
+            }
+
+            async setupCamera() {
+                const constraints = {
+                    video: {
+                        facingMode: this.config.facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                };
+
+                if (this.video.srcObject) {
+                    this.video.srcObject.getTracks().forEach(track => track.stop());
+                }
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    this.video.srcObject = stream;
+                    
+                    return new Promise((resolve) => {
+                        this.video.onloadedmetadata = () => {
+                            this.resizeCanvas();
+                            this.video.play();
+                            // Flip video horizontally if front camera
+                            this.video.style.transform = (this.config.facingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
+                            resolve();
+                        };
+                    });
+                } catch (err) {
+                    // Fallback to basic video constraint if environment camera fails
+                    console.warn("Environmental camera failed, falling back to default camera");
+                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    this.video.srcObject = fallbackStream;
+                    return new Promise((resolve) => {
+                        this.video.onloadedmetadata = () => {
+                            this.resizeCanvas();
+                            this.video.play();
+                            resolve();
+                        };
+                    });
+                }
+            }
+
+            resizeCanvas() {
+                this.canvas.width = this.video.videoWidth || window.innerWidth;
+                this.canvas.height = this.video.videoHeight || window.innerHeight;
+            }
+
+            bindEvents() {
+                window.addEventListener('resize', () => this.resizeCanvas());
+
+                // Buttons
+                document.getElementById('btn-settings').addEventListener('click', () => this.toggleDrawer('drawer-settings'));
+                document.getElementById('btn-calibrate').addEventListener('click', () => this.openCalibrationModal());
+                document.getElementById('btn-switch-cam').addEventListener('click', () => this.toggleCamera());
+                document.getElementById('btn-toggle-voice').addEventListener('click', () => this.toggleVoice());
+
+                // Target card click to speak immediately
+                document.getElementById('target-card').addEventListener('click', () => {
+                    if (this.lastDetections.length > 0) {
+                        this.speakClosestObject(this.lastDetections[0], true);
+                    } else {
+                        this.speakText("No targets currently detected in view.", true);
+                    }
+                });
+
+                // Sliders
+                document.getElementById('slider-stride').addEventListener('input', (e) => {
+                    this.config.stepLength = parseFloat(e.target.value);
+                    this.saveConfig();
+                });
+
+                document.getElementById('slider-thresh').addEventListener('input', (e) => {
+                    this.config.confidenceThresh = parseFloat(e.target.value);
+                    this.saveConfig();
+                });
+
+                document.getElementById('slider-focal').addEventListener('input', (e) => {
+                    this.config.focalLength = parseFloat(e.target.value);
+                    this.saveConfig();
+                });
+
+                document.getElementById('slider-interval').addEventListener('input', (e) => {
+                    this.config.voiceInterval = parseInt(e.target.value, 10);
+                    this.saveConfig();
+                });
+            }
+
+            async toggleCamera() {
+                this.config.facingMode = (this.config.facingMode === 'environment') ? 'user' : 'environment';
+                await this.setupCamera();
+            }
+
+            updateLoadingStatus(msg) {
+                this.loadingStatus.innerText = msg;
+            }
+
+            /*
+            ============================================================================
+            MONOCULAR DISTANCE ESTIMATION ENGINE
+            Formula: Distance = (RealWorldSize * FocalLength) / PixelSizeOnScreen
+            ============================================================================
+            */
+            calculateDistance(className, bbox) {
+                const [x, y, width, height] = bbox;
+                const spec = REAL_WORLD_SIZES[className] || REAL_WORLD_SIZES['default'];
+
+                let pixelSize = height; // default to height
+                if (spec.dimension === 'width') {
+                    pixelSize = width;
+                } else if (spec.dimension === 'max') {
+                    pixelSize = Math.max(width, height);
+                }
+
+                if (pixelSize <= 0) return { meters: 0, steps: 0 };
+
+                // Pinhole Camera Distance Formula (Meters)
+                const meters = (spec.size * this.config.focalLength) / pixelSize;
+                
+                // Convert to steps
+                const steps = Math.round(meters / this.config.stepLength);
+
+                return { meters, steps, pixelSize, realSize: spec.size };
+            }
+
+            calculateDirection(bbox) {
+                const [x, y, width, height] = bbox;
+                const videoWidth = this.video.videoWidth || this.canvas.width || 1280;
+                const centerX = x + width / 2;
+                const ratio = centerX / videoWidth;
+
+                if (ratio < 0.38) {
+                    return { code: 'LEFT', text: 'on your left', icon: 'fa-arrow-left' };
+                } else if (ratio > 0.62) {
+                    return { code: 'RIGHT', text: 'on your right', icon: 'fa-arrow-right' };
+                } else {
+                    return { code: 'AHEAD', text: 'straight ahead', icon: 'fa-arrow-up' };
+                }
+            }
+
+            /*
+            ============================================================================
+            REAL-TIME DETECTION & HUD RENDERING LOOP
+            ============================================================================
+            */
+            async detectLoop() {
+                if (!this.isDetecting) return;
+
+                // FPS Calculation
+                const now = performance.now();
+                this.frameCount++;
+                if (now - this.lastFpsTime >= 1000) {
+                    this.fps = Math.round((this.frameCount * 1000) / (now - this.lastFpsTime));
+                    document.getElementById('telemetry-fps').innerText = this.fps;
+                    this.frameCount = 0;
+                    this.lastFpsTime = now;
+                }
+
+                // Run Object Detection Inference
+                if (this.model && this.video.readyState === 4) {
+                    const predictions = await this.model.detect(this.video);
+                    
+                    // Filter predictions by threshold
+                    const validDetections = predictions.filter(p => p.score >= this.config.confidenceThresh);
+                    
+                    // Compute distance & direction metrics for each object
+                    const processedObjects = validDetections.map(pred => {
+                        const metrics = this.calculateDistance(pred.class, pred.bbox);
+                        const direction = this.calculateDirection(pred.bbox);
+                        return {
+                            ...pred,
+                            distanceMeters: metrics.meters,
+                            steps: metrics.steps,
+                            pixelSize: metrics.pixelSize,
+                            direction: direction
+                        };
+                    });
+
+                    // Sort objects by distance (closest first)
+                    processedObjects.sort((a, b) => a.distanceMeters - b.distanceMeters);
+
+                    this.lastDetections = processedObjects;
+
+                    // Update UI Canvas & Telemetry HUD
+                    this.renderHUD(processedObjects);
+                }
+
+                requestAnimationFrame(() => this.detectLoop());
+            }
+
+            renderHUD(objects) {
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                document.getElementById('telemetry-count').innerText = objects.length;
+
+                if (objects.length === 0) {
+                    document.getElementById('closest-label').innerText = "Scanning area...";
+                    document.getElementById('closest-steps').innerText = "--";
+                    document.getElementById('closest-dist').innerText = "--";
+                    document.getElementById('closest-direction').innerText = "--";
+                    document.getElementById('telemetry-dir').innerText = "--";
+                    return;
+                }
+
+                const closest = objects[0];
+
+                // Update Closest Target UI Card & Direction Tag
+                const displayDist = this.config.unit === 'm' ? closest.distanceMeters : closest.distanceMeters * 3.28084;
+                document.getElementById('closest-label').innerText = closest.class;
+                document.getElementById('closest-steps').innerText = closest.steps;
+                document.getElementById('closest-dist').innerText = displayDist.toFixed(1);
+                
+                document.getElementById('closest-direction').innerText = `${closest.direction.code} (${closest.direction.text.toUpperCase()})`;
+                document.getElementById('dir-icon').className = `fa-solid ${closest.direction.icon}`;
+                document.getElementById('telemetry-dir').innerText = closest.direction.code;
+
+                // Handle Automatic Voice Announcement
+                this.handleVoiceAnnouncements(closest);
+
+                // Draw bounding boxes on canvas
+                objects.forEach((obj, idx) => {
+                    const isClosest = (idx === 0);
+                    const [x, y, width, height] = obj.bbox;
+                    const displayVal = this.config.unit === 'm' 
+                        ? `${obj.distanceMeters.toFixed(1)}m` 
+                        : `${(obj.distanceMeters * 3.28084).toFixed(1)}ft`;
+
+                    if (isClosest) {
+                        // HIGHLIGHT CLOSEST OBJECT WITH GOLD/CYAN RETICLE & CORNER BRACKETS
+                        ctx.strokeStyle = '#00f2fe';
+                        ctx.lineWidth = 3;
+                        ctx.shadowColor = '#00f2fe';
+                        ctx.shadowBlur = 12;
+
+                        // Animated Reticle Bounding Box
+                        ctx.strokeRect(x, y, width, height);
+
+                        // Reticle Corner Brackets
+                        const bracketLen = Math.min(20, width / 4, height / 4);
+                        ctx.strokeStyle = '#ffb703';
+                        ctx.lineWidth = 4;
+
+                        // Top-Left
+                        ctx.beginPath(); ctx.moveTo(x, y + bracketLen); ctx.lineTo(x, y); ctx.lineTo(x + bracketLen, y); ctx.stroke();
+                        // Top-Right
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
+                        // Bottom-Left
+                        ctx.beginPath(); ctx.moveTo(x, y + height - bracketLen); ctx.lineTo(x, y + height); ctx.lineTo(x + bracketLen, y + height); ctx.stroke();
+                        // Bottom-Right
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
+
+                        // Crosshair Center Target
+                        const cx = x + width / 2;
+                        const cy = y + height / 2;
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, 6, 0, 2 * Math.PI);
+                        ctx.fillStyle = '#ffb703';
+                        ctx.fill();
+
+                        // Label Badge
+                        const labelText = `★ CLOSEST: ${obj.class.toUpperCase()} — ${obj.steps} STEPS (${displayVal}) [${obj.direction.code}]`;
+                        ctx.font = 'bold 14px "JetBrains Mono", monospace';
+                        const textWidth = ctx.measureText(labelText).width;
+
+                        ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
+                        ctx.shadowBlur = 0;
+                        ctx.fillRect(x, Math.max(0, y - 32), textWidth + 16, 26);
+
+                        ctx.fillStyle = '#ffb703';
+                        ctx.fillText(labelText, x + 8, Math.max(18, y - 14));
+
+                    } else {
+                        // STANDARD DETECTED OBJECTS
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                        ctx.lineWidth = 2;
+                        ctx.shadowBlur = 0;
+                        ctx.strokeRect(x, y, width, height);
+
+                        // Label Badge
+                        const labelText = `${obj.class} — ${obj.steps} steps (${displayVal}) [${obj.direction.code}]`;
+                        ctx.font = '12px "Outfit", sans-serif';
+                        const textWidth = ctx.measureText(labelText).width;
+
+                        ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+                        ctx.fillRect(x, Math.max(0, y - 24), textWidth + 12, 20);
+
+                        ctx.fillStyle = '#f8fafc';
+                        ctx.fillText(labelText, x + 6, Math.max(14, y - 10));
+                    }
+                });
+            }
+
+            /*
+            ============================================================================
+            TEXT-TO-SPEECH & VOICE ANNOUNCEMENT ENGINE
+            ============================================================================
+            */
+            toggleVoice() {
+                this.config.voiceEnabled = !this.config.voiceEnabled;
+                this.saveConfig();
+                if (this.config.voiceEnabled) {
+                    this.speakText("Voice guidance enabled.", true);
+                } else {
+                    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                }
+            }
+
+            setVoiceEnabled(enabled) {
+                this.config.voiceEnabled = enabled;
+                this.saveConfig();
+                if (enabled) {
+                    this.speakText("Voice guidance enabled.", true);
+                } else {
+                    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                }
+            }
+
+            handleVoiceAnnouncements(closest) {
+                if (!this.config.voiceEnabled || !('speechSynthesis' in window)) return;
+
+                const now = performance.now();
+                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
+
+                const isNewTarget = !this.lastSpokenTarget || 
+                                    this.lastSpokenTarget.class !== closest.class || 
+                                    this.lastSpokenTarget.directionCode !== closest.direction.code ||
+                                    Math.abs(this.lastSpokenTarget.steps - closest.steps) >= 2;
+
+                if (now - this.lastSpeechTime >= cooldownMs && isNewTarget) {
+                    this.speakClosestObject(closest);
+                }
+            }
+
+            speakClosestObject(obj, force = false) {
+                if (!('speechSynthesis' in window)) return;
+                if (!this.config.voiceEnabled && !force) return;
+
+                const unitText = this.config.unit === 'm' ? 'meters' : 'feet';
+                const distVal = this.config.unit === 'm' ? obj.distanceMeters.toFixed(1) : (obj.distanceMeters * 3.28084).toFixed(1);
+                const stepText = obj.steps === 1 ? '1 step' : `${obj.steps} steps`;
+                
+                // Voice guidance phrasing e.g.: "Person detected, 3 steps, 2.2 meters on your left."
+                const phrase = `${obj.class} detected. ${stepText}, ${distVal} ${unitText} ${obj.direction.text}.`;
+
+                this.speakText(phrase, force);
+
+                this.lastSpeechTime = performance.now();
+                this.lastSpokenTarget = {
+                    class: obj.class,
+                    directionCode: obj.direction.code,
+                    steps: obj.steps
+                };
+            }
+
+            speakText(text, force = false) {
+                if (!('speechSynthesis' in window)) return;
+                if (force || window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                }
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                utterance.lang = 'en-US';
+
+                window.speechSynthesis.speak(utterance);
+            }
+
+            testVoiceAnnouncement() {
+                if (this.lastDetections.length > 0) {
+                    this.speakClosestObject(this.lastDetections[0], true);
+                } else {
+                    this.speakText("Test announcement: Person detected, 4 steps, 2.8 meters straight ahead.", true);
+                }
+            }
+
+            /*
+            ============================================================================
+            CALIBRATION WIZARD LOGIC
+            Formula to find Focal Length: FocalLength = (PixelSize * KnownDistance) / RealWorldSize
+            ============================================================================
+            */
+            setCalibDist(dist, btn) {
+                this.calibrationTargetDistance = dist;
+                const buttons = btn.parentElement.querySelectorAll('.segment-btn');
+                buttons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+
+            executeCalibration() {
+                const targetClass = document.getElementById('calib-object-select').value;
+                const targetObj = this.lastDetections.find(o => o.class === targetClass) || this.lastDetections[0];
+
+                if (!targetObj) {
+                    alert(`No ${targetClass} detected in camera view! Point your camera at a ${targetClass} and try again.`);
+                    return;
+                }
+
+                const spec = REAL_WORLD_SIZES[targetClass] || REAL_WORLD_SIZES['default'];
+                const pixelSize = targetObj.pixelSize;
+
+                if (!pixelSize || pixelSize <= 0) {
+                    alert("Invalid bounding box pixels. Please retry.");
+                    return;
+                }
+
+                // Compute focal length in pixels
+                // FocalLength = (PixelSize * KnownDistance) / RealWorldSize
+                const calculatedFocalLength = (pixelSize * this.calibrationTargetDistance) / spec.size;
+
+                this.config.focalLength = Math.round(calculatedFocalLength);
+                this.config.isCalibrated = true;
+                this.saveConfig();
+
+                alert(`Success! Camera Focal Length calibrated to ${this.config.focalLength} px.`);
+                this.closeDrawers();
+            }
+
+            // Drawer & Modal Controls
+            toggleDrawer(id) {
+                const el = document.getElementById(id);
+                const isOpen = el.classList.contains('open');
+                this.closeDrawers();
+                if (!isOpen) el.classList.add('open');
+            }
+
+            openCalibrationModal() {
+                this.closeDrawers();
+                document.getElementById('modal-calibration').classList.add('open');
+            }
+
+            closeDrawers() {
+                document.querySelectorAll('.drawer-overlay').forEach(d => d.classList.remove('open'));
+            }
+
+            setUnit(unit) {
+                this.config.unit = unit;
+                this.saveConfig();
+            }
+
+            resetSettings() {
+                this.config = {
+                    focalLength: 700,
+                    stepLength: 0.72,
+                    unit: 'm',
+                    confidenceThresh: 0.50,
+                    isCalibrated: false,
+                    facingMode: 'environment',
+                    voiceEnabled: true,
+                    voiceInterval: 4
+                };
+                this.saveConfig();
+                this.closeDrawers();
+            }
+        }
+
+        // Boot App Instance on DOM ready
+        let app;
+        window.addEventListener('DOMContentLoaded', () => {
+            app = new SpatialVisionApp();
+        });
+    </script>
+</body>
+</html>
