@@ -1536,9 +1536,9 @@
                         ctx.lineWidth = 4;
 
                         ctx.beginPath(); ctx.moveTo(x, y + bracketLen); ctx.lineTo(x, y); ctx.lineTo(x + bracketLen, y); ctx.stroke();
-                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
                         ctx.beginPath(); ctx.moveTo(x, y + height - bracketLen); ctx.lineTo(x, y + height); ctx.lineTo(x + bracketLen, y + height); ctx.stroke();
-                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
 
                         // Label
                         const labelText = `★ CLOSEST: ${obj.class.toUpperCase()} — ${obj.steps} STEPS (${displayVal})`;
