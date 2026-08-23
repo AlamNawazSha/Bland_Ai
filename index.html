@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>SpatialVision AI — Object & Step Estimator</title>
+    <title>SpatialVision AI — Monocular Object Distance & AI Collision Avoidance</title>
     <!-- Modern Typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,16 +17,18 @@
 
     <style>
         :root {
-            --bg-dark: #090d16;
-            --bg-panel: rgba(18, 24, 38, 0.75);
-            --bg-card: rgba(30, 41, 59, 0.7);
+            --bg-dark: #070a12;
+            --bg-panel: rgba(15, 22, 36, 0.85);
+            --bg-card: rgba(26, 36, 54, 0.75);
             --accent-cyan: #00f2fe;
             --accent-emerald: #00f5a0;
             --accent-gold: #ffb703;
             --accent-rose: #ff2a6d;
+            --danger-red: #ff0055;
+            --warning-amber: #ff9100;
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
-            --border-glass: rgba(255, 255, 255, 0.12);
+            --border-glass: rgba(255, 255, 255, 0.14);
             --radius-lg: 20px;
             --radius-md: 12px;
             --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -39,6 +41,7 @@
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: manipulation;
         }
 
         body, html {
@@ -60,6 +63,22 @@
             justify-content: space-between;
             align-items: center;
             background: radial-gradient(circle at center, #131b2e 0%, #060911 100%);
+            transition: box-shadow 0.3s ease;
+        }
+
+        /* Full Screen Hazard Flash Animations */
+        .app-viewport.hazard-danger {
+            box-shadow: inset 0 0 60px var(--danger-red);
+            animation: pulseDanger 0.8s infinite alternate;
+        }
+
+        .app-viewport.hazard-caution {
+            box-shadow: inset 0 0 40px var(--warning-amber);
+        }
+
+        @keyframes pulseDanger {
+            0% { box-shadow: inset 0 0 30px var(--danger-red); }
+            100% { box-shadow: inset 0 0 90px var(--danger-red); }
         }
 
         /* Camera Feed & Canvas Overlay */
@@ -79,7 +98,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(1); /* Updated via JS if front camera */
+            transform: scaleX(1);
         }
 
         canvas#hud-canvas {
@@ -99,12 +118,19 @@
             width: 100%;
             padding: 16px 20px;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 10px;
             z-index: 10;
-            background: linear-gradient(to bottom, rgba(9, 13, 22, 0.85) 0%, rgba(9, 13, 22, 0) 100%);
+            background: linear-gradient(to bottom, rgba(7, 10, 18, 0.9) 0%, rgba(7, 10, 18, 0) 100%);
             backdrop-filter: blur(8px);
             -webkit-backdrop-filter: blur(8px);
+        }
+
+        .top-bar-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
         }
 
         .brand-pill {
@@ -144,7 +170,7 @@
 
         .hud-actions {
             display: flex;
-            gap: 10px;
+            gap: 8px;
         }
 
         .icon-btn {
@@ -169,18 +195,73 @@
             color: var(--bg-dark);
         }
 
+        /* Hazard Warning & Collision Steering Banner */
+        .hazard-banner {
+            width: 100%;
+            padding: 10px 16px;
+            border-radius: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: 800;
+            font-size: 14px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            transition: all 0.3s ease;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            color: var(--accent-emerald);
+        }
+
+        .hazard-banner.danger {
+            background: linear-gradient(90deg, #ff0055 0%, #d90429 100%);
+            color: #ffffff;
+            border: 1px solid #ff4d6d;
+            box-shadow: 0 0 25px rgba(255, 0, 85, 0.7);
+            animation: bannerPulse 0.5s infinite alternate;
+        }
+
+        .hazard-banner.caution {
+            background: linear-gradient(90deg, #ff9100 0%, #e65100 100%);
+            color: #ffffff;
+            border: 1px solid #ffb703;
+        }
+
+        .hazard-banner.clear {
+            background: rgba(0, 245, 160, 0.15);
+            color: var(--accent-emerald);
+            border: 1px solid rgba(0, 245, 160, 0.4);
+        }
+
+        @keyframes bannerPulse {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.02); }
+        }
+
+        .steering-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-family: var(--font-mono);
+        }
+
         /* Floating Closest Object Telemetry Card */
         .bottom-hud {
             position: absolute;
             bottom: 0;
             left: 0;
             width: 100%;
-            padding: 20px;
+            padding: 16px 20px;
             z-index: 10;
             display: flex;
             flex-direction: column;
-            gap: 12px;
-            background: linear-gradient(to top, rgba(9, 13, 22, 0.95) 0%, rgba(9, 13, 22, 0.4) 70%, rgba(9, 13, 22, 0) 100%);
+            gap: 10px;
+            background: linear-gradient(to top, rgba(7, 10, 18, 0.95) 0%, rgba(7, 10, 18, 0.5) 70%, rgba(7, 10, 18, 0) 100%);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
         }
@@ -189,7 +270,7 @@
             background: var(--bg-panel);
             border: 1px solid rgba(0, 242, 254, 0.3);
             border-radius: var(--radius-lg);
-            padding: 16px 20px;
+            padding: 14px 18px;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 15px rgba(0, 242, 254, 0.05);
             display: flex;
             justify-content: space-between;
@@ -248,34 +329,43 @@
 
         .metric-value {
             font-family: var(--font-mono);
-            font-size: 28px;
+            font-size: 26px;
             font-weight: 800;
-            color: var(--accent-gold);
+            color: #ffffff;
             line-height: 1;
         }
 
         .metric-unit {
-            font-size: 11px;
+            font-size: 10.5px;
+            font-weight: 600;
             color: var(--text-muted);
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            margin-top: 2px;
+            margin-top: 4px;
         }
 
+        /* Secondary Telemetry Pills */
         .secondary-metrics {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0 4px;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            padding-bottom: 2px;
+        }
+
+        .secondary-metrics::-webkit-scrollbar {
+            display: none;
         }
 
         .badge-pill {
-            background: rgba(255, 255, 255, 0.06);
+            background: var(--bg-card);
             border: 1px solid var(--border-glass);
-            padding: 6px 12px;
-            border-radius: 20px;
+            border-radius: 30px;
+            padding: 6px 14px;
             font-size: 12px;
+            font-weight: 600;
             color: var(--text-muted);
+            white-space: nowrap;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -283,36 +373,115 @@
 
         .badge-pill span {
             color: var(--text-main);
-            font-weight: 600;
             font-family: var(--font-mono);
+            font-weight: 700;
         }
 
+        /* Calibration Warning Banner */
         .calibration-alert {
             background: rgba(255, 183, 3, 0.15);
             border: 1px solid rgba(255, 183, 3, 0.4);
-            color: var(--accent-gold);
-            padding: 10px 14px;
             border-radius: var(--radius-md);
-            font-size: 12.5px;
+            padding: 8px 14px;
+            font-size: 12px;
+            color: var(--accent-gold);
             display: flex;
-            align-items: center;
             justify-content: space-between;
+            align-items: center;
             cursor: pointer;
+            transition: all 0.2s ease;
         }
 
-        /* Drawers & Modals */
-        .drawer-overlay {
-            position: absolute;
+        .calibration-alert:hover {
+            background: rgba(255, 183, 3, 0.25);
+        }
+
+        /* Splash Start Overlay for Mobile Permission & Audio Unlock */
+        .start-overlay {
+            position: fixed;
             top: 0;
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(6px);
+            background: rgba(6, 9, 17, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+            text-align: center;
+            transition: opacity 0.4s ease, visibility 0.4s ease;
+        }
+
+        .start-card {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-glass);
+            border-radius: 28px;
+            padding: 32px 24px;
+            max-width: 420px;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+        }
+
+        .start-icon {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-emerald));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 34px;
+            color: var(--bg-dark);
+            box-shadow: 0 0 30px rgba(0, 242, 254, 0.5);
+        }
+
+        .btn-start-guidance {
+            width: 100%;
+            padding: 16px;
+            border-radius: 30px;
+            border: none;
+            background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-emerald) 100%);
+            color: var(--bg-dark);
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            box-shadow: 0 8px 25px rgba(0, 242, 254, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-start-guidance:active {
+            transform: scale(0.96);
+        }
+
+        /* Drawer & Modals */
+        .drawer-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
             z-index: 100;
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
             opacity: 0;
             pointer-events: none;
-            transition: opacity 0.3s ease;
+            transition: all 0.3s ease;
         }
 
         .drawer-overlay.open {
@@ -321,22 +490,20 @@
         }
 
         .drawer-panel {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            max-height: 85vh;
-            background: #0f172a;
+            background: var(--bg-dark);
             border-top: 1px solid var(--border-glass);
-            border-radius: 24px 24px 0 0;
+            border-top-left-radius: 28px;
+            border-top-right-radius: 28px;
+            width: 100%;
+            max-width: 600px;
+            max-height: 85vh;
+            overflow-y: auto;
             padding: 24px;
             display: flex;
             flex-direction: column;
             gap: 20px;
-            overflow-y: auto;
             transform: translateY(100%);
-            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 -10px 40px rgba(0,0,0,0.6);
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         .drawer-overlay.open .drawer-panel {
@@ -347,17 +514,15 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--border-glass);
-            padding-bottom: 14px;
         }
 
         .drawer-title {
             font-size: 18px;
             font-weight: 700;
+            color: #fff;
             display: flex;
             align-items: center;
             gap: 10px;
-            color: var(--accent-cyan);
         }
 
         .form-group {
@@ -374,7 +539,7 @@
             justify-content: space-between;
         }
 
-        .form-label span.val {
+        .form-label .val {
             color: var(--accent-cyan);
             font-family: var(--font-mono);
         }
@@ -382,23 +547,19 @@
         .range-slider {
             width: 100%;
             accent-color: var(--accent-cyan);
-            height: 6px;
-            border-radius: 3px;
-            background: rgba(255,255,255,0.1);
         }
 
         .segmented-control {
             display: flex;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border-glass);
-            border-radius: 12px;
+            background: rgba(255,255,255,0.06);
             padding: 4px;
-            gap: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border-glass);
         }
 
         .segment-btn {
             flex: 1;
-            padding: 8px 12px;
+            padding: 8px;
             border: none;
             background: transparent;
             color: var(--text-muted);
@@ -412,75 +573,78 @@
         .segment-btn.active {
             background: var(--accent-cyan);
             color: var(--bg-dark);
+            font-weight: 700;
         }
 
         .btn-primary {
             width: 100%;
             padding: 14px;
-            border-radius: var(--radius-md);
+            border-radius: 12px;
             border: none;
-            background: linear-gradient(135deg, var(--accent-cyan) 0%, #00b4d8 100%);
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-emerald));
             color: var(--bg-dark);
             font-weight: 700;
-            font-size: 15px;
+            font-size: 14px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
         }
 
         .btn-secondary {
             width: 100%;
-            padding: 12px;
-            border-radius: var(--radius-md);
+            padding: 14px;
+            border-radius: 12px;
             border: 1px solid var(--border-glass);
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255,255,255,0.06);
             color: var(--text-main);
             font-weight: 600;
             font-size: 14px;
             cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
-        /* Calibration Modal Wizard */
         .step-card {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(255,255,255,0.04);
             border: 1px solid var(--border-glass);
-            border-radius: var(--radius-md);
-            padding: 16px;
+            border-radius: 12px;
+            padding: 14px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }
 
         .step-num {
+            background: var(--accent-cyan);
+            color: var(--bg-dark);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: var(--accent-cyan);
-            color: var(--bg-dark);
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 800;
             margin-right: 6px;
         }
 
-        /* Loading Overlay */
+        /* Loading Screen */
         .loading-screen {
-            position: absolute;
+            position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            background: #090d16;
-            z-index: 200;
+            width: 100vw;
+            height: 100vh;
+            background: var(--bg-dark);
+            z-index: 500;
             display: flex;
             flex-direction: column;
-            align-items: center;
             justify-content: center;
+            align-items: center;
             gap: 20px;
             transition: opacity 0.5s ease;
         }
@@ -488,68 +652,112 @@
         .spinner {
             width: 50px;
             height: 50px;
-            border: 4px solid rgba(0, 242, 254, 0.15);
-            border-top: 4px solid var(--accent-cyan);
+            border: 4px solid rgba(0, 242, 254, 0.1);
+            border-top-color: var(--accent-cyan);
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
 
         .loading-text {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             color: var(--text-muted);
             letter-spacing: 0.5px;
+            text-align: center;
+            padding: 0 20px;
         }
 
-        /* Pulse glow animation for reticle */
-        @keyframes pulseGlow {
-            0% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.4); }
-            70% { box-shadow: 0 0 0 15px rgba(0, 242, 254, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(0, 242, 254, 0); }
+        /* Diagnostic Warning Box */
+        .diag-box {
+            background: rgba(255, 0, 85, 0.15);
+            border: 1px solid rgba(255, 0, 85, 0.4);
+            border-radius: 16px;
+            padding: 16px;
+            color: #ff4d6d;
+            font-size: 13px;
+            line-height: 1.5;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            text-align: left;
         }
     </style>
 </head>
 <body>
 
     <!-- Main Viewport -->
-    <div class="app-viewport">
+    <div class="app-viewport" id="app-viewport">
 
         <!-- Loading Screen -->
         <div id="loading-screen" class="loading-screen">
             <div class="spinner"></div>
-            <div class="loading-text" id="loading-status">Initializing TensorFlow.js & COCO-SSD...</div>
+            <div class="loading-text" id="loading-status">Initializing TensorFlow.js & COCO-SSD Model...</div>
+        </div>
+
+        <!-- Splash / Tap-to-Start Guidance Overlay for Mobile Audio/Camera Permissions -->
+        <div id="start-overlay" class="start-overlay" style="display: flex;">
+            <div class="start-card">
+                <div class="start-icon">
+                    <i class="fa-solid fa-eye"></i>
+                </div>
+                <div>
+                    <h2 style="font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 6px;">SpatialVision AI</h2>
+                    <p style="font-size: 13.5px; color: var(--text-muted); line-height: 1.5;">
+                        Real-time Monocular Distance & Voice Guidance for Visually Impaired Obstacle Avoidance.
+                    </p>
+                </div>
+
+                <div class="diag-box" id="diag-https-box" style="display: none;">
+                    <strong><i class="fa-solid fa-shield-cat"></i> HTTPS Connection Required for Mobile Camera</strong>
+                    <span>Modern mobile browsers block camera access (`getUserMedia`) on insecure `http://` links. Please access via HTTPS (GitHub Pages, Netlify, Vercel, or local SSL).</span>
+                </div>
+
+                <button class="btn-start-guidance" id="btn-start-app" onclick="app.startGuidanceSystem()">
+                    <i class="fa-solid fa-play"></i> START GUIDANCE SYSTEM
+                </button>
+            </div>
         </div>
 
         <!-- Camera Stage & Canvas Overlay -->
         <div class="stage-container">
-            <video id="webcam" autoplay playsinline muted></video>
+            <video id="webcam" autoplay playsinline webkit-playsinline muted></video>
             <canvas id="hud-canvas"></canvas>
         </div>
 
-        <!-- Top Navigation HUD -->
+        <!-- Top Navigation & Hazard Alert HUD -->
         <div class="top-hud">
-            <div class="brand-pill">
-                <div class="status-dot" id="status-dot"></div>
-                <span class="brand-title">SPATIAL VISION AI</span>
+            <div class="top-bar-row">
+                <div class="brand-pill">
+                    <div class="status-dot" id="status-dot"></div>
+                    <span class="brand-title">SPATIAL VISION AI</span>
+                </div>
+                <div class="hud-actions">
+                    <button class="icon-btn" id="btn-toggle-voice" title="Toggle Voice Guidance">
+                        <i class="fa-solid fa-volume-high" id="icon-voice"></i>
+                    </button>
+                    <button class="icon-btn" id="btn-switch-cam" title="Switch Camera">
+                        <i class="fa-solid fa-camera-rotate"></i>
+                    </button>
+                    <button class="icon-btn" id="btn-calibrate" title="Calibrate Distance">
+                        <i class="fa-solid fa-crosshairs"></i>
+                    </button>
+                    <button class="icon-btn" id="btn-settings" title="Settings">
+                        <i class="fa-solid fa-sliders"></i>
+                    </button>
+                </div>
             </div>
-            <div class="hud-actions">
-                <button class="icon-btn" id="btn-toggle-voice" title="Toggle Voice Guidance">
-                    <i class="fa-solid fa-volume-high" id="icon-voice"></i>
-                </button>
-                <button class="icon-btn" id="btn-switch-cam" title="Switch Camera">
-                    <i class="fa-solid fa-camera-rotate"></i>
-                </button>
-                <button class="icon-btn" id="btn-calibrate" title="Calibrate Distance">
-                    <i class="fa-solid fa-crosshairs"></i>
-                </button>
-                <button class="icon-btn" id="btn-settings" title="Settings">
-                    <i class="fa-solid fa-sliders"></i>
-                </button>
+
+            <!-- Real-time Collision Avoidance & Steering Banner -->
+            <div class="hazard-banner clear" id="hazard-banner">
+                <span id="hazard-text"><i class="fa-solid fa-shield-halved"></i> PATH CLEAR AHEAD</span>
+                <div class="steering-pill" id="steering-pill">
+                    <i class="fa-solid fa-arrow-up" id="steering-icon"></i>
+                    <span id="steering-text">CLEAR</span>
+                </div>
             </div>
         </div>
 
@@ -557,15 +765,15 @@
         <div class="bottom-hud">
             <!-- Calibration Warning Banner -->
             <div class="calibration-alert" id="calib-banner" onclick="app.openCalibrationModal()">
-                <span><i class="fa-solid fa-triangle-exclamation"></i> Using default camera optics. Tap to calibrate focal length.</span>
+                <span><i class="fa-solid fa-triangle-exclamation"></i> Using default optics. Tap to calibrate camera focal length.</span>
                 <i class="fa-solid fa-chevron-right"></i>
             </div>
 
             <!-- Target Primary Metrics Card -->
             <div class="target-card" id="target-card" style="cursor: pointer;" title="Tap to hear voice announcement">
                 <div class="target-info">
-                    <div class="target-tag"><i class="fa-solid fa-bullseye"></i> Closest Target</div>
-                    <div class="target-label" id="closest-label">Scanning...</div>
+                    <div class="target-tag"><i class="fa-solid fa-bullseye"></i> Closest Obstacle</div>
+                    <div class="target-label" id="closest-label">Scanning area...</div>
                     <div style="font-size: 11.5px; font-weight: 700; color: var(--accent-gold); display: flex; align-items: center; gap: 6px; margin-top: 4px;" id="direction-badge-container">
                         <i class="fa-solid fa-compass" id="dir-icon"></i> <span id="closest-direction">--</span>
                     </div>
@@ -594,6 +802,9 @@
                     <i class="fa-solid fa-shoe-prints"></i> Stride: <span id="telemetry-stride">0.72m</span>
                 </div>
                 <div class="badge-pill">
+                    <i class="fa-solid fa-mobile-screen-button"></i> Haptic: <span id="telemetry-haptic" style="color: var(--accent-emerald);">ON</span>
+                </div>
+                <div class="badge-pill">
                     <i class="fa-solid fa-bolt"></i> FPS: <span id="telemetry-fps">--</span>
                 </div>
             </div>
@@ -605,7 +816,7 @@
     <div class="drawer-overlay" id="drawer-settings">
         <div class="drawer-panel">
             <div class="drawer-header">
-                <div class="drawer-title"><i class="fa-solid fa-sliders"></i> System Settings</div>
+                <div class="drawer-title"><i class="fa-solid fa-sliders"></i> Guidance Settings</div>
                 <button class="icon-btn" onclick="app.closeDrawers()"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
@@ -622,6 +833,17 @@
 
             <div class="form-group">
                 <div class="form-label">
+                    <span>Haptic Mobile Vibration</span>
+                    <span class="val" id="lbl-haptic-status">Enabled</span>
+                </div>
+                <div class="segmented-control">
+                    <button class="segment-btn active" id="btn-haptic-on" onclick="app.setHapticEnabled(true)">Vibrate ON</button>
+                    <button class="segment-btn" id="btn-haptic-off" onclick="app.setHapticEnabled(false)">Off</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <div class="form-label">
                     <span>Announcement Cooldown Interval</span>
                     <span class="val" id="lbl-interval-val">4 sec</span>
                 </div>
@@ -629,7 +851,7 @@
             </div>
 
             <button class="btn-secondary" onclick="app.testVoiceAnnouncement()" style="margin-bottom: 4px;">
-                <i class="fa-solid fa-volume-high"></i> Test Voice Announcement
+                <i class="fa-solid fa-volume-high"></i> Test Voice Guidance
             </button>
 
             <div class="form-group">
@@ -651,9 +873,9 @@
             <div class="form-group">
                 <div class="form-label">
                     <span>Detection Threshold</span>
-                    <span class="val" id="lbl-thresh-val">50%</span>
+                    <span class="val" id="lbl-thresh-val">45%</span>
                 </div>
-                <input type="range" class="range-slider" id="slider-thresh" min="0.30" max="0.85" step="0.05" value="0.50">
+                <input type="range" class="range-slider" id="slider-thresh" min="0.30" max="0.85" step="0.05" value="0.45">
             </div>
 
             <div class="form-group">
@@ -665,7 +887,7 @@
             </div>
 
             <button class="btn-primary" onclick="app.openCalibrationModal(); app.closeDrawers();">
-                <i class="fa-solid fa-crosshairs"></i> Run Distance Calibration Wizard
+                <i class="fa-solid fa-crosshairs"></i> Run Focal Length Calibration Wizard
             </button>
 
             <button class="btn-secondary" onclick="app.resetSettings()">
@@ -722,42 +944,8 @@
     </div>
 
 
-    <!-- JavaScript Core Logic -->
+    <!-- JavaScript Core Engine -->
     <script>
-        /*
-        ================================================================================
-        SPATIAL VISION AI - ARCHITECTURE & RASPBERRY PI / OPENCV MIGRATION GUIDE
-        ================================================================================
-        This application uses TensorFlow.js COCO-SSD and Pinhole Camera Math to estimate
-        object distances in real time and calculate required steps.
-
-        PYTHON / OPENCV MIGRATION CORRESPONDENCE FOR RASPBERRY PI:
-        --------------------------------------------------------------------------------
-        1. CAMERA FEED:
-           JS: navigator.mediaDevices.getUserMedia()
-           Python: cap = cv2.VideoCapture(0)
-
-        2. MODEL INFERENCE:
-           JS: cocoSsd.load(), model.detect(video)
-           Python: 
-               from ultralytics import YOLO
-               model = YOLO('yolov8n.pt')
-               results = model(frame)
-
-        3. PINHOLE DISTANCE FORMULA:
-           Formula: Distance (m) = (RealObjectSize * FocalLength) / PixelSizeOnScreen
-           Python Function:
-               def estimate_distance(real_size, focal_length, bbox_pixels):
-                   return (real_size * focal_length) / max(bbox_pixels, 1)
-
-        4. DRAWING OVERLAYS:
-           JS: canvasContext.strokeRect(), fillText()
-           Python:
-               cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
-               cv2.putText(frame, text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        ================================================================================
-        */
-
         // Real-world physical dimensions (meters) lookup table for common COCO-SSD classes
         const REAL_WORLD_SIZES = {
             'person':      { size: 1.70, dimension: 'height', label: 'Person' },
@@ -786,24 +974,24 @@
 
         class SpatialVisionApp {
             constructor() {
-                // Config State (Loaded from localStorage if available)
                 this.config = {
-                    focalLength: 700,        // Camera focal length in pixels (default estimate)
-                    stepLength: 0.72,        // Average human step length in meters
-                    unit: 'm',               // 'm' (meters) or 'ft' (feet)
-                    confidenceThresh: 0.50,  // Minimum object detection confidence score
+                    focalLength: 700,        // Camera focal length in pixels
+                    stepLength: 0.72,        // Average step length in meters
+                    unit: 'm',               // 'm' or 'ft'
+                    confidenceThresh: 0.45,  // Confidence threshold
                     isCalibrated: false,
-                    facingMode: 'environment', // Rear camera default for mobile
+                    facingMode: 'environment', // Rear camera for mobile
                     voiceEnabled: true,      // Voice announcement toggle
+                    hapticEnabled: true,     // Mobile vibration toggle
                     voiceInterval: 4         // Announcement interval in seconds
                 };
 
-                // Calibration state
-                this.calibrationTargetDistance = 2.0; // default 2.0 meters
-
-                // Speech state tracking
+                // State
+                this.calibrationTargetDistance = 2.0;
                 this.lastSpeechTime = 0;
                 this.lastSpokenTarget = null;
+                this.lastHazardLevel = 'CLEAR';
+                this.lastClearPathAnnounce = 0;
 
                 // DOM Elements
                 this.video = document.getElementById('webcam');
@@ -811,12 +999,15 @@
                 this.ctx = this.canvas.getContext('2d');
                 this.loadingScreen = document.getElementById('loading-screen');
                 this.loadingStatus = document.getElementById('loading-status');
+                this.startOverlay = document.getElementById('start-overlay');
                 this.statusDot = document.getElementById('status-dot');
+                this.appViewport = document.getElementById('app-viewport');
 
                 // Model & Inference
                 this.model = null;
                 this.isDetecting = false;
                 this.lastDetections = [];
+                this.isAppStarted = false;
 
                 // Performance Metrics
                 this.fps = 0;
@@ -829,29 +1020,99 @@
             async init() {
                 this.loadSavedConfig();
                 this.bindEvents();
+                this.checkSecureContext();
 
                 try {
-                    // Step 1: Initialize Camera
-                    this.updateLoadingStatus("Accessing device camera...");
-                    await this.setupCamera();
-
-                    // Step 2: Load COCO-SSD Model
                     this.updateLoadingStatus("Loading COCO-SSD AI Model...");
                     this.model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
 
-                    // Hide Loading Screen
                     this.loadingScreen.style.opacity = '0';
                     setTimeout(() => this.loadingScreen.style.display = 'none', 500);
                     this.statusDot.classList.add('active');
-
-                    // Step 3: Start Real-time Detection Loop
-                    this.isDetecting = true;
-                    this.detectLoop();
                 } catch (error) {
-                    console.error("Initialization error:", error);
-                    this.loadingStatus.innerText = "Error: " + error.message;
+                    console.error("Model loading error:", error);
+                    this.loadingStatus.innerText = "Error loading AI model: " + error.message;
                     this.loadingStatus.style.color = "#ff2a6d";
                 }
+            }
+
+            checkSecureContext() {
+                const isSecure = window.isSecureContext || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                if (!isSecure) {
+                    document.getElementById('diag-https-box').style.display = 'flex';
+                }
+            }
+
+            async startGuidanceSystem() {
+                this.triggerHaptic('click');
+
+                // Unlock Speech Synthesis Audio Context on mobile tap
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                    const dummyUtterance = new SpeechSynthesisUtterance("Guidance system active");
+                    dummyUtterance.volume = 0.8;
+                    dummyUtterance.rate = 1.1;
+                    window.speechSynthesis.speak(dummyUtterance);
+                }
+
+                // Initialize camera stream
+                this.updateLoadingStatus("Accessing device camera...");
+                try {
+                    await this.setupCamera();
+                    this.startOverlay.style.opacity = '0';
+                    setTimeout(() => this.startOverlay.style.display = 'none', 400);
+
+                    this.isAppStarted = true;
+                    if (!this.isDetecting) {
+                        this.isDetecting = true;
+                        this.detectLoop();
+                    }
+                } catch (err) {
+                    alert("Camera error: " + err.message + "\nPlease grant camera permission and ensure HTTPS connection.");
+                }
+            }
+
+            async setupCamera() {
+                // Cascade fallback for mobile camera constraints
+                const constraintOptions = [
+                    { video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+                    { video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+                    { video: { facingMode: 'user' }, audio: false },
+                    { video: true, audio: false }
+                ];
+
+                if (this.video.srcObject) {
+                    this.video.srcObject.getTracks().forEach(track => track.stop());
+                }
+
+                let stream = null;
+                for (const option of constraintOptions) {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia(option);
+                        if (stream) break;
+                    } catch (e) {
+                        console.warn("Camera option failed, trying fallback...", e.message);
+                    }
+                }
+
+                if (!stream) {
+                    throw new Error("Unable to access any camera. Check permissions or HTTPS connection.");
+                }
+
+                this.video.srcObject = stream;
+                return new Promise((resolve) => {
+                    this.video.onloadedmetadata = () => {
+                        this.resizeCanvas();
+                        this.video.play().catch(e => console.warn("Video play error:", e));
+                        this.video.style.transform = (this.config.facingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
+                        resolve();
+                    };
+                });
+            }
+
+            resizeCanvas() {
+                this.canvas.width = this.video.videoWidth || window.innerWidth;
+                this.canvas.height = this.video.videoHeight || window.innerHeight;
             }
 
             loadSavedConfig() {
@@ -883,11 +1144,15 @@
                 document.getElementById('slider-focal').value = this.config.focalLength;
 
                 document.getElementById('lbl-voice-status').innerText = this.config.voiceEnabled ? 'Enabled' : 'Muted';
+                document.getElementById('lbl-haptic-status').innerText = this.config.hapticEnabled ? 'Enabled' : 'Off';
                 document.getElementById('lbl-interval-val').innerText = `${this.config.voiceInterval} sec`;
                 document.getElementById('slider-interval').value = this.config.voiceInterval;
 
                 document.getElementById('btn-voice-on').classList.toggle('active', this.config.voiceEnabled);
                 document.getElementById('btn-voice-off').classList.toggle('active', !this.config.voiceEnabled);
+
+                document.getElementById('btn-haptic-on').classList.toggle('active', this.config.hapticEnabled);
+                document.getElementById('btn-haptic-off').classList.toggle('active', !this.config.hapticEnabled);
 
                 const iconVoice = document.getElementById('icon-voice');
                 if (iconVoice) {
@@ -896,82 +1161,31 @@
                 }
 
                 document.getElementById('telemetry-stride').innerText = `${this.config.stepLength.toFixed(2)}m`;
+                document.getElementById('telemetry-haptic').innerText = this.config.hapticEnabled ? 'ON' : 'OFF';
                 document.getElementById('unit-label').innerText = this.config.unit === 'm' ? 'Meters' : 'Feet';
 
-                // Segmented control active states
                 document.getElementById('unit-m').classList.toggle('active', this.config.unit === 'm');
                 document.getElementById('unit-ft').classList.toggle('active', this.config.unit === 'ft');
 
-                // Calibration banner state
                 document.getElementById('calib-banner').style.display = this.config.isCalibrated ? 'none' : 'flex';
-            }
-
-            async setupCamera() {
-                const constraints = {
-                    video: {
-                        facingMode: this.config.facingMode,
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    },
-                    audio: false
-                };
-
-                if (this.video.srcObject) {
-                    this.video.srcObject.getTracks().forEach(track => track.stop());
-                }
-
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    this.video.srcObject = stream;
-                    
-                    return new Promise((resolve) => {
-                        this.video.onloadedmetadata = () => {
-                            this.resizeCanvas();
-                            this.video.play();
-                            // Flip video horizontally if front camera
-                            this.video.style.transform = (this.config.facingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
-                            resolve();
-                        };
-                    });
-                } catch (err) {
-                    // Fallback to basic video constraint if environment camera fails
-                    console.warn("Environmental camera failed, falling back to default camera");
-                    const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                    this.video.srcObject = fallbackStream;
-                    return new Promise((resolve) => {
-                        this.video.onloadedmetadata = () => {
-                            this.resizeCanvas();
-                            this.video.play();
-                            resolve();
-                        };
-                    });
-                }
-            }
-
-            resizeCanvas() {
-                this.canvas.width = this.video.videoWidth || window.innerWidth;
-                this.canvas.height = this.video.videoHeight || window.innerHeight;
             }
 
             bindEvents() {
                 window.addEventListener('resize', () => this.resizeCanvas());
 
-                // Buttons
                 document.getElementById('btn-settings').addEventListener('click', () => this.toggleDrawer('drawer-settings'));
                 document.getElementById('btn-calibrate').addEventListener('click', () => this.openCalibrationModal());
                 document.getElementById('btn-switch-cam').addEventListener('click', () => this.toggleCamera());
                 document.getElementById('btn-toggle-voice').addEventListener('click', () => this.toggleVoice());
 
-                // Target card click to speak immediately
                 document.getElementById('target-card').addEventListener('click', () => {
                     if (this.lastDetections.length > 0) {
                         this.speakClosestObject(this.lastDetections[0], true);
                     } else {
-                        this.speakText("No targets currently detected in view.", true);
+                        this.speakText("Path is clear. No obstacles detected ahead.", true);
                     }
                 });
 
-                // Sliders
                 document.getElementById('slider-stride').addEventListener('input', (e) => {
                     this.config.stepLength = parseFloat(e.target.value);
                     this.saveConfig();
@@ -1002,17 +1216,12 @@
                 this.loadingStatus.innerText = msg;
             }
 
-            /*
-            ============================================================================
-            MONOCULAR DISTANCE ESTIMATION ENGINE
-            Formula: Distance = (RealWorldSize * FocalLength) / PixelSizeOnScreen
-            ============================================================================
-            */
+            // Monocular Distance Estimation Calculation
             calculateDistance(className, bbox) {
                 const [x, y, width, height] = bbox;
                 const spec = REAL_WORLD_SIZES[className] || REAL_WORLD_SIZES['default'];
 
-                let pixelSize = height; // default to height
+                let pixelSize = height;
                 if (spec.dimension === 'width') {
                     pixelSize = width;
                 } else if (spec.dimension === 'max') {
@@ -1021,10 +1230,8 @@
 
                 if (pixelSize <= 0) return { meters: 0, steps: 0 };
 
-                // Pinhole Camera Distance Formula (Meters)
+                // Pinhole Camera Distance Formula: Distance = (RealSize * FocalLength) / PixelSize
                 const meters = (spec.size * this.config.focalLength) / pixelSize;
-                
-                // Convert to steps
                 const steps = Math.round(meters / this.config.stepLength);
 
                 return { meters, steps, pixelSize, realSize: spec.size };
@@ -1036,24 +1243,34 @@
                 const centerX = x + width / 2;
                 const ratio = centerX / videoWidth;
 
-                if (ratio < 0.38) {
-                    return { code: 'LEFT', text: 'on your left', icon: 'fa-arrow-left' };
-                } else if (ratio > 0.62) {
-                    return { code: 'RIGHT', text: 'on your right', icon: 'fa-arrow-right' };
+                if (ratio < 0.35) {
+                    return { code: 'LEFT', text: 'on your left', corridor: 'LEFT', icon: 'fa-arrow-left' };
+                } else if (ratio > 0.65) {
+                    return { code: 'RIGHT', text: 'on your right', corridor: 'RIGHT', icon: 'fa-arrow-right' };
                 } else {
-                    return { code: 'AHEAD', text: 'straight ahead', icon: 'fa-arrow-up' };
+                    return { code: 'AHEAD', text: 'straight ahead', corridor: 'CENTER', icon: 'fa-arrow-up' };
                 }
             }
 
-            /*
-            ============================================================================
-            REAL-TIME DETECTION & HUD RENDERING LOOP
-            ============================================================================
-            */
+            triggerHaptic(patternType) {
+                if (!this.config.hapticEnabled || !('vibrate' in navigator)) return;
+                try {
+                    if (patternType === 'danger') {
+                        navigator.vibrate([300, 100, 300, 100, 300]);
+                    } else if (patternType === 'caution') {
+                        navigator.vibrate([150, 80, 150]);
+                    } else if (patternType === 'click') {
+                        navigator.vibrate([50]);
+                    }
+                } catch (e) {
+                    // Mobile vibration ignored if blocked
+                }
+            }
+
+            // Real-Time Detection & Collision Avoidance Loop
             async detectLoop() {
                 if (!this.isDetecting) return;
 
-                // FPS Calculation
                 const now = performance.now();
                 this.frameCount++;
                 if (now - this.lastFpsTime >= 1000) {
@@ -1063,14 +1280,10 @@
                     this.lastFpsTime = now;
                 }
 
-                // Run Object Detection Inference
                 if (this.model && this.video.readyState === 4) {
                     const predictions = await this.model.detect(this.video);
-                    
-                    // Filter predictions by threshold
                     const validDetections = predictions.filter(p => p.score >= this.config.confidenceThresh);
                     
-                    // Compute distance & direction metrics for each object
                     const processedObjects = validDetections.map(pred => {
                         const metrics = this.calculateDistance(pred.class, pred.bbox);
                         const direction = this.calculateDirection(pred.bbox);
@@ -1085,17 +1298,165 @@
 
                     // Sort objects by distance (closest first)
                     processedObjects.sort((a, b) => a.distanceMeters - b.distanceMeters);
-
                     this.lastDetections = processedObjects;
 
-                    // Update UI Canvas & Telemetry HUD
-                    this.renderHUD(processedObjects);
+                    // Analyze Obstacle Collision & Steering Guidance
+                    const hazardInfo = this.analyzeCollisionHazards(processedObjects);
+
+                    // Render HUD & Handle Voice/Haptic Guidance
+                    this.renderHUD(processedObjects, hazardInfo);
+                    this.handleCollisionGuidance(hazardInfo);
                 }
 
                 requestAnimationFrame(() => this.detectLoop());
             }
 
-            renderHUD(objects) {
+            // AI Collision Avoidance Corridor Analysis
+            analyzeCollisionHazards(objects) {
+                if (objects.length === 0) {
+                    return {
+                        level: 'CLEAR',
+                        closest: null,
+                        steering: { text: 'CLEAR ⬆', direction: 'CENTER', icon: 'fa-arrow-up' },
+                        leftCount: 0,
+                        rightCount: 0,
+                        centerCount: 0
+                    };
+                }
+
+                let leftCount = 0;
+                let rightCount = 0;
+                let centerCount = 0;
+                let closestCenterObj = null;
+
+                objects.forEach(obj => {
+                    if (obj.direction.corridor === 'LEFT') leftCount++;
+                    else if (obj.direction.corridor === 'RIGHT') rightCount++;
+                    else {
+                        centerCount++;
+                        if (!closestCenterObj || obj.distanceMeters < closestCenterObj.distanceMeters) {
+                            closestCenterObj = obj;
+                        }
+                    }
+                });
+
+                const closestOverall = objects[0];
+
+                // Collision Danger threshold (< 1.25 meters or <= 2 steps in direct center path)
+                if (closestCenterObj && closestCenterObj.distanceMeters <= 1.25) {
+                    let steer = { text: 'STEER RIGHT ➔', direction: 'RIGHT', icon: 'fa-arrow-right' };
+                    if (leftCount <= rightCount) {
+                        steer = { text: '⬅ STEER LEFT', direction: 'LEFT', icon: 'fa-arrow-left' };
+                    }
+                    if (leftCount > 2 && rightCount > 2) {
+                        steer = { text: '🛑 STOP IMMEDIATELY', direction: 'STOP', icon: 'fa-hand' };
+                    }
+
+                    return {
+                        level: 'DANGER',
+                        closest: closestCenterObj,
+                        steering: steer,
+                        leftCount, rightCount, centerCount
+                    };
+                }
+                
+                // Caution Threshold (1.25m to 2.2m in center, or close < 1.0m on sides)
+                if ((closestCenterObj && closestCenterObj.distanceMeters <= 2.2) || (closestOverall && closestOverall.distanceMeters <= 1.0)) {
+                    let steer = { text: 'DETOUR AHEAD', direction: 'DETOUR', icon: 'fa-diamond-turn-right' };
+                    if (leftCount < rightCount) steer = { text: 'VEER LEFT ↖', direction: 'LEFT', icon: 'fa-arrow-up-left' };
+                    else if (rightCount < leftCount) steer = { text: 'VEER RIGHT ↗', direction: 'RIGHT', icon: 'fa-arrow-up-right' };
+
+                    return {
+                        level: 'CAUTION',
+                        closest: closestCenterObj || closestOverall,
+                        steering: steer,
+                        leftCount, rightCount, centerCount
+                    };
+                }
+
+                // Path Clear
+                return {
+                    level: 'CLEAR',
+                    closest: closestOverall,
+                    steering: { text: 'PATH CLEAR ⬆', direction: 'CENTER', icon: 'fa-arrow-up' },
+                    leftCount, rightCount, centerCount
+                };
+            }
+
+            handleCollisionGuidance(hazardInfo) {
+                const now = performance.now();
+                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
+
+                // Priority 1: IMMINENT DANGER COLLISION ALERT
+                if (hazardInfo.level === 'DANGER' && hazardInfo.closest) {
+                    this.appViewport.className = "app-viewport hazard-danger";
+                    const hazardBanner = document.getElementById('hazard-banner');
+                    hazardBanner.className = "hazard-banner danger";
+                    document.getElementById('hazard-text').innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> STOP! ${hazardInfo.closest.class.toUpperCase()} AHEAD`;
+
+                    document.getElementById('steering-pill').style.background = 'rgba(0,0,0,0.4)';
+                    document.getElementById('steering-text').innerText = hazardInfo.steering.text;
+                    document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
+
+                    // Trigger Urgent Haptic & High Priority Voice Interrupt
+                    if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > 2000)) {
+                        this.triggerHaptic('danger');
+                        const unitText = this.config.unit === 'm' ? 'meters' : 'feet';
+                        const distVal = this.config.unit === 'm' ? hazardInfo.closest.distanceMeters.toFixed(1) : (hazardInfo.closest.distanceMeters * 3.28084).toFixed(1);
+                        const phrase = `Warning! ${hazardInfo.closest.class} ${hazardInfo.closest.steps} steps straight ahead! ${hazardInfo.steering.text.replace(/[^a-zA-Z ]/g, "")}`;
+                        
+                        this.speakText(phrase, true, 1.2); // force speech interrupt with faster pitch rate
+                        this.lastSpeechTime = now;
+                    }
+                    this.lastHazardLevel = 'DANGER';
+                    return;
+                }
+
+                // Priority 2: CAUTION HAZARD
+                if (hazardInfo.level === 'CAUTION' && hazardInfo.closest) {
+                    this.appViewport.className = "app-viewport hazard-caution";
+                    const hazardBanner = document.getElementById('hazard-banner');
+                    hazardBanner.className = "hazard-banner caution";
+                    document.getElementById('hazard-text').innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> CAUTION: OBSTACLE NEARBY`;
+
+                    document.getElementById('steering-text').innerText = hazardInfo.steering.text;
+                    document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
+
+                    if (this.lastHazardLevel !== 'CAUTION' && (now - this.lastSpeechTime > cooldownMs)) {
+                        this.triggerHaptic('caution');
+                        const phrase = `Caution: ${hazardInfo.closest.class} approaching ${hazardInfo.closest.direction.text}.`;
+                        this.speakText(phrase, false, 1.0);
+                        this.lastSpeechTime = now;
+                    }
+                    this.lastHazardLevel = 'CAUTION';
+                    return;
+                }
+
+                // Priority 3: CLEAR PATH
+                this.appViewport.className = "app-viewport";
+                const hazardBanner = document.getElementById('hazard-banner');
+                hazardBanner.className = "hazard-banner clear";
+                document.getElementById('hazard-text').innerHTML = `<i class="fa-solid fa-shield-halved"></i> PATH CLEAR AHEAD`;
+                document.getElementById('steering-text').innerText = "PATH CLEAR";
+                document.getElementById('steering-icon').className = "fa-solid fa-arrow-up";
+
+                // Periodic Clear Path Audio Confirmation (Every 10 seconds)
+                if (this.lastHazardLevel !== 'CLEAR' || (now - this.lastClearPathAnnounce > 10000)) {
+                    if (this.lastHazardLevel !== 'CLEAR') {
+                        this.speakText("Path clear straight ahead.", false, 1.0);
+                        this.lastSpeechTime = now;
+                    }
+                    this.lastClearPathAnnounce = now;
+                }
+                this.lastHazardLevel = 'CLEAR';
+
+                // Standard routine target speech
+                if (hazardInfo.closest && (now - this.lastSpeechTime >= cooldownMs)) {
+                    this.handleVoiceAnnouncements(hazardInfo.closest);
+                }
+            }
+
+            renderHUD(objects, hazardInfo) {
                 const ctx = this.ctx;
                 ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -1111,8 +1472,6 @@
                 }
 
                 const closest = objects[0];
-
-                // Update Closest Target UI Card & Direction Tag
                 const displayDist = this.config.unit === 'm' ? closest.distanceMeters : closest.distanceMeters * 3.28084;
                 document.getElementById('closest-label').innerText = closest.class;
                 document.getElementById('closest-steps').innerText = closest.steps;
@@ -1122,70 +1481,85 @@
                 document.getElementById('dir-icon').className = `fa-solid ${closest.direction.icon}`;
                 document.getElementById('telemetry-dir').innerText = closest.direction.code;
 
-                // Handle Automatic Voice Announcement
-                this.handleVoiceAnnouncements(closest);
+                // Draw Corridor Guide Lines (Left 35%, Right 65%)
+                const w = this.canvas.width;
+                const h = this.canvas.height;
 
-                // Draw bounding boxes on canvas
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+                ctx.lineWidth = 1;
+                ctx.setLineDash([6, 6]);
+
+                // Corridor lines
+                ctx.beginPath(); ctx.moveTo(w * 0.35, 0); ctx.lineTo(w * 0.35, h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(w * 0.65, 0); ctx.lineTo(w * 0.65, h); ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Draw Bounding Boxes
                 objects.forEach((obj, idx) => {
                     const isClosest = (idx === 0);
+                    const isDangerObj = (hazardInfo.level === 'DANGER' && hazardInfo.closest === obj);
                     const [x, y, width, height] = obj.bbox;
                     const displayVal = this.config.unit === 'm' 
                         ? `${obj.distanceMeters.toFixed(1)}m` 
                         : `${(obj.distanceMeters * 3.28084).toFixed(1)}ft`;
 
-                    if (isClosest) {
-                        // HIGHLIGHT CLOSEST OBJECT WITH GOLD/CYAN RETICLE & CORNER BRACKETS
+                    if (isDangerObj) {
+                        // IMMINENT COLLISION OBSTACLE - GLOWING RED RETICLE
+                        ctx.strokeStyle = '#ff0055';
+                        ctx.lineWidth = 4;
+                        ctx.shadowColor = '#ff0055';
+                        ctx.shadowBlur = 18;
+                        ctx.strokeRect(x, y, width, height);
+
+                        const labelText = `🛑 DANGER: ${obj.class.toUpperCase()} (${obj.steps} STEPS)`;
+                        ctx.font = 'bold 14px "JetBrains Mono", monospace';
+                        const textWidth = ctx.measureText(labelText).width;
+
+                        ctx.fillStyle = '#ff0055';
+                        ctx.shadowBlur = 0;
+                        ctx.fillRect(x, Math.max(0, y - 30), textWidth + 16, 26);
+
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(labelText, x + 8, Math.max(18, y - 12));
+
+                    } else if (isClosest) {
+                        // CLOSEST OBJECT - CYAN/GOLD RETICLE
                         ctx.strokeStyle = '#00f2fe';
                         ctx.lineWidth = 3;
                         ctx.shadowColor = '#00f2fe';
                         ctx.shadowBlur = 12;
-
-                        // Animated Reticle Bounding Box
                         ctx.strokeRect(x, y, width, height);
 
-                        // Reticle Corner Brackets
+                        // Corner Brackets
                         const bracketLen = Math.min(20, width / 4, height / 4);
                         ctx.strokeStyle = '#ffb703';
                         ctx.lineWidth = 4;
 
-                        // Top-Left
                         ctx.beginPath(); ctx.moveTo(x, y + bracketLen); ctx.lineTo(x, y); ctx.lineTo(x + bracketLen, y); ctx.stroke();
-                        // Top-Right
-                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
-                        // Bottom-Left
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y); ctx.lineTo(x + width); ctx.lineTo(x + width, y + bracketLen); ctx.stroke();
                         ctx.beginPath(); ctx.moveTo(x, y + height - bracketLen); ctx.lineTo(x, y + height); ctx.lineTo(x + bracketLen, y + height); ctx.stroke();
-                        // Bottom-Right
-                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(x + width - bracketLen, y + height); ctx.lineTo(x + width); ctx.lineTo(x + width, y + height - bracketLen); ctx.stroke();
 
-                        // Crosshair Center Target
-                        const cx = x + width / 2;
-                        const cy = y + height / 2;
-                        ctx.beginPath();
-                        ctx.arc(cx, cy, 6, 0, 2 * Math.PI);
-                        ctx.fillStyle = '#ffb703';
-                        ctx.fill();
-
-                        // Label Badge
-                        const labelText = `★ CLOSEST: ${obj.class.toUpperCase()} — ${obj.steps} STEPS (${displayVal}) [${obj.direction.code}]`;
-                        ctx.font = 'bold 14px "JetBrains Mono", monospace';
+                        // Label
+                        const labelText = `★ CLOSEST: ${obj.class.toUpperCase()} — ${obj.steps} STEPS (${displayVal})`;
+                        ctx.font = 'bold 13px "JetBrains Mono", monospace';
                         const textWidth = ctx.measureText(labelText).width;
 
-                        ctx.fillStyle = 'rgba(9, 13, 22, 0.9)';
+                        ctx.fillStyle = 'rgba(7, 10, 18, 0.9)';
                         ctx.shadowBlur = 0;
-                        ctx.fillRect(x, Math.max(0, y - 32), textWidth + 16, 26);
+                        ctx.fillRect(x, Math.max(0, y - 30), textWidth + 16, 24);
 
                         ctx.fillStyle = '#ffb703';
-                        ctx.fillText(labelText, x + 8, Math.max(18, y - 14));
+                        ctx.fillText(labelText, x + 8, Math.max(16, y - 14));
 
                     } else {
-                        // STANDARD DETECTED OBJECTS
-                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                        // STANDARD DETECTED OBJECT
+                        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
                         ctx.lineWidth = 2;
                         ctx.shadowBlur = 0;
                         ctx.strokeRect(x, y, width, height);
 
-                        // Label Badge
-                        const labelText = `${obj.class} — ${obj.steps} steps (${displayVal}) [${obj.direction.code}]`;
+                        const labelText = `${obj.class} — ${obj.steps} steps (${displayVal})`;
                         ctx.font = '12px "Outfit", sans-serif';
                         const textWidth = ctx.measureText(labelText).width;
 
@@ -1198,11 +1572,52 @@
                 });
             }
 
-            /*
-            ============================================================================
-            TEXT-TO-SPEECH & VOICE ANNOUNCEMENT ENGINE
-            ============================================================================
-            */
+            handleVoiceAnnouncements(closest) {
+                if (!this.config.voiceEnabled || !('speechSynthesis' in window)) return;
+
+                const isNewTarget = !this.lastSpokenTarget || 
+                                    this.lastSpokenTarget.class !== closest.class || 
+                                    this.lastSpokenTarget.directionCode !== closest.direction.code ||
+                                    Math.abs(this.lastSpokenTarget.steps - closest.steps) >= 2;
+
+                if (isNewTarget) {
+                    this.speakClosestObject(closest);
+                }
+            }
+
+            speakClosestObject(obj, force = false) {
+                if (!('speechSynthesis' in window)) return;
+                if (!this.config.voiceEnabled && !force) return;
+
+                const unitText = this.config.unit === 'm' ? 'meters' : 'feet';
+                const distVal = this.config.unit === 'm' ? obj.distanceMeters.toFixed(1) : (obj.distanceMeters * 3.28084).toFixed(1);
+                const stepText = obj.steps === 1 ? '1 step' : `${obj.steps} steps`;
+                
+                const phrase = `${obj.class} detected. ${stepText}, ${distVal} ${unitText} ${obj.direction.text}.`;
+                this.speakText(phrase, force);
+
+                this.lastSpeechTime = performance.now();
+                this.lastSpokenTarget = {
+                    class: obj.class,
+                    directionCode: obj.direction.code,
+                    steps: obj.steps
+                };
+            }
+
+            speakText(text, force = false, speechRate = 1.0) {
+                if (!('speechSynthesis' in window)) return;
+                if (force || window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                }
+
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = speechRate;
+                utterance.pitch = 1.0;
+                utterance.lang = 'en-US';
+
+                window.speechSynthesis.speak(utterance);
+            }
+
             toggleVoice() {
                 this.config.voiceEnabled = !this.config.voiceEnabled;
                 this.saveConfig();
@@ -1223,71 +1638,19 @@
                 }
             }
 
-            handleVoiceAnnouncements(closest) {
-                if (!this.config.voiceEnabled || !('speechSynthesis' in window)) return;
-
-                const now = performance.now();
-                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
-
-                const isNewTarget = !this.lastSpokenTarget || 
-                                    this.lastSpokenTarget.class !== closest.class || 
-                                    this.lastSpokenTarget.directionCode !== closest.direction.code ||
-                                    Math.abs(this.lastSpokenTarget.steps - closest.steps) >= 2;
-
-                if (now - this.lastSpeechTime >= cooldownMs && isNewTarget) {
-                    this.speakClosestObject(closest);
-                }
-            }
-
-            speakClosestObject(obj, force = false) {
-                if (!('speechSynthesis' in window)) return;
-                if (!this.config.voiceEnabled && !force) return;
-
-                const unitText = this.config.unit === 'm' ? 'meters' : 'feet';
-                const distVal = this.config.unit === 'm' ? obj.distanceMeters.toFixed(1) : (obj.distanceMeters * 3.28084).toFixed(1);
-                const stepText = obj.steps === 1 ? '1 step' : `${obj.steps} steps`;
-                
-                // Voice guidance phrasing e.g.: "Person detected, 3 steps, 2.2 meters on your left."
-                const phrase = `${obj.class} detected. ${stepText}, ${distVal} ${unitText} ${obj.direction.text}.`;
-
-                this.speakText(phrase, force);
-
-                this.lastSpeechTime = performance.now();
-                this.lastSpokenTarget = {
-                    class: obj.class,
-                    directionCode: obj.direction.code,
-                    steps: obj.steps
-                };
-            }
-
-            speakText(text, force = false) {
-                if (!('speechSynthesis' in window)) return;
-                if (force || window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
-                }
-
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = 1.0;
-                utterance.pitch = 1.0;
-                utterance.lang = 'en-US';
-
-                window.speechSynthesis.speak(utterance);
+            setHapticEnabled(enabled) {
+                this.config.hapticEnabled = enabled;
+                this.saveConfig();
             }
 
             testVoiceAnnouncement() {
                 if (this.lastDetections.length > 0) {
                     this.speakClosestObject(this.lastDetections[0], true);
                 } else {
-                    this.speakText("Test announcement: Person detected, 4 steps, 2.8 meters straight ahead.", true);
+                    this.speakText("Testing guidance: Person detected, 3 steps, 2.1 meters straight ahead. Steer left.", true);
                 }
             }
 
-            /*
-            ============================================================================
-            CALIBRATION WIZARD LOGIC
-            Formula to find Focal Length: FocalLength = (PixelSize * KnownDistance) / RealWorldSize
-            ============================================================================
-            */
             setCalibDist(dist, btn) {
                 this.calibrationTargetDistance = dist;
                 const buttons = btn.parentElement.querySelectorAll('.segment-btn');
@@ -1300,7 +1663,7 @@
                 const targetObj = this.lastDetections.find(o => o.class === targetClass) || this.lastDetections[0];
 
                 if (!targetObj) {
-                    alert(`No ${targetClass} detected in camera view! Point your camera at a ${targetClass} and try again.`);
+                    alert(`No ${targetClass} detected in view! Point camera at a ${targetClass} and try again.`);
                     return;
                 }
 
@@ -1308,14 +1671,11 @@
                 const pixelSize = targetObj.pixelSize;
 
                 if (!pixelSize || pixelSize <= 0) {
-                    alert("Invalid bounding box pixels. Please retry.");
+                    alert("Invalid bounding box size. Please retry.");
                     return;
                 }
 
-                // Compute focal length in pixels
-                // FocalLength = (PixelSize * KnownDistance) / RealWorldSize
                 const calculatedFocalLength = (pixelSize * this.calibrationTargetDistance) / spec.size;
-
                 this.config.focalLength = Math.round(calculatedFocalLength);
                 this.config.isCalibrated = true;
                 this.saveConfig();
@@ -1324,7 +1684,6 @@
                 this.closeDrawers();
             }
 
-            // Drawer & Modal Controls
             toggleDrawer(id) {
                 const el = document.getElementById(id);
                 const isOpen = el.classList.contains('open');
@@ -1351,10 +1710,11 @@
                     focalLength: 700,
                     stepLength: 0.72,
                     unit: 'm',
-                    confidenceThresh: 0.50,
+                    confidenceThresh: 0.45,
                     isCalibrated: false,
                     facingMode: 'environment',
                     voiceEnabled: true,
+                    hapticEnabled: true,
                     voiceInterval: 4
                 };
                 this.saveConfig();
@@ -1362,7 +1722,7 @@
             }
         }
 
-        // Boot App Instance on DOM ready
+        // Initialize App Instance
         let app;
         window.addEventListener('DOMContentLoaded', () => {
             app = new SpatialVisionApp();
