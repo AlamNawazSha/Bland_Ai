@@ -992,6 +992,8 @@
                 this.lastSpokenTarget = null;
                 this.lastHazardLevel = 'CLEAR';
                 this.lastClearPathAnnounce = 0;
+                this.recentlySpokenTargets = new Map();
+                this.scanIndex = 0;
 
                 // DOM Elements
                 this.video = document.getElementById('webcam');
@@ -1305,10 +1307,36 @@
 
                     // Render HUD & Handle Voice/Haptic Guidance
                     this.renderHUD(processedObjects, hazardInfo);
-                    this.handleCollisionGuidance(hazardInfo);
+                    this.handleCollisionGuidance(hazardInfo, processedObjects);
                 }
 
                 requestAnimationFrame(() => this.detectLoop());
+            }
+
+            selectTargetToAnnounce(objects) {
+                if (!objects || objects.length === 0) return null;
+
+                const now = performance.now();
+
+                // Round-robin scan across all detected objects in view
+                for (let i = 0; i < objects.length; i++) {
+                    const candidateIndex = (this.scanIndex + i) % objects.length;
+                    const candidate = objects[candidateIndex];
+                    const targetKey = `${candidate.class}_${candidate.direction.code}`;
+                    const last = this.recentlySpokenTargets.get(targetKey);
+
+                    // Re-announce object ONLY if position changes significantly (>= 2 steps) or 8s elapsed
+                    const isPositionChangeLarge = !last ||
+                                                  Math.abs(last.steps - candidate.steps) >= 2 ||
+                                                  (now - last.time > 8000);
+
+                    if (isPositionChangeLarge) {
+                        this.scanIndex = (candidateIndex + 1) % objects.length;
+                        return candidate;
+                    }
+                }
+
+                return null;
             }
 
             // AI Collision Avoidance Corridor Analysis
@@ -1439,10 +1467,9 @@
                 };
             }
 
-            handleCollisionGuidance(hazardInfo) {
+            handleCollisionGuidance(hazardInfo, objects) {
                 const now = performance.now();
-                // Short 1.5s speech interval when danger is detected for fast safety feedback
-                const unsafeIntervalMs = 1500;
+                const unsafeIntervalMs = 2500;
 
                 // Priority 1: IMMINENT DANGER COLLISION ALERT
                 if (hazardInfo.level === 'DANGER' && hazardInfo.closest) {
@@ -1455,11 +1482,28 @@
                     document.getElementById('steering-text').innerText = hazardInfo.steering.text;
                     document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
 
-                    if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
+                    const targetKey = `DANGER_${hazardInfo.closest.class}_${hazardInfo.closest.direction.code}`;
+                    const lastDanger = this.recentlySpokenTargets.get(targetKey);
+                    const positionChangeLarge = !lastDanger ||
+                                                 Math.abs(lastDanger.steps - hazardInfo.closest.steps) >= 2 ||
+                                                 (now - lastDanger.time > 6000);
+
+                    if (positionChangeLarge) {
                         this.triggerHaptic('danger');
                         this.playDangerAudioTone();
                         this.speakText(hazardInfo.steering.voiceInstruction, true, 1.05);
                         this.lastSpeechTime = now;
+                        this.recentlySpokenTargets.set(targetKey, {
+                            time: now,
+                            steps: hazardInfo.closest.steps,
+                            directionCode: hazardInfo.closest.direction.code
+                        });
+                    } else {
+                        // Same danger object is stationary: scan and announce other nearby objects if any exist!
+                        const altTarget = this.selectTargetToAnnounce(objects);
+                        if (altTarget && altTarget !== hazardInfo.closest && (now - this.lastSpeechTime > unsafeIntervalMs)) {
+                            this.speakClosestObject(altTarget);
+                        }
                     }
                     this.lastHazardLevel = 'DANGER';
                     return;
@@ -1475,10 +1519,27 @@
                     document.getElementById('steering-text').innerText = hazardInfo.steering.text;
                     document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
 
-                    if (this.lastHazardLevel !== 'CAUTION' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
+                    const targetKey = `CAUTION_${hazardInfo.closest.class}_${hazardInfo.closest.direction.code}`;
+                    const lastCaution = this.recentlySpokenTargets.get(targetKey);
+                    const positionChangeLarge = !lastCaution ||
+                                                 Math.abs(lastCaution.steps - hazardInfo.closest.steps) >= 2 ||
+                                                 (now - lastCaution.time > 7000);
+
+                    if (positionChangeLarge) {
                         this.triggerHaptic('caution');
-                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.1);
+                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.05);
                         this.lastSpeechTime = now;
+                        this.recentlySpokenTargets.set(targetKey, {
+                            time: now,
+                            steps: hazardInfo.closest.steps,
+                            directionCode: hazardInfo.closest.direction.code
+                        });
+                    } else {
+                        // Same caution object is stationary: scan and announce other nearby objects!
+                        const altTarget = this.selectTargetToAnnounce(objects);
+                        if (altTarget && altTarget !== hazardInfo.closest && (now - this.lastSpeechTime > unsafeIntervalMs)) {
+                            this.speakClosestObject(altTarget);
+                        }
                     }
                     this.lastHazardLevel = 'CAUTION';
                     return;
@@ -1501,9 +1562,10 @@
                 }
                 this.lastHazardLevel = 'CLEAR';
 
-                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
-                if (hazardInfo.closest && (now - this.lastSpeechTime >= cooldownMs)) {
-                    this.handleVoiceAnnouncements(hazardInfo.closest);
+                // Scan through surrounding objects in view
+                const candidate = this.selectTargetToAnnounce(objects);
+                if (candidate && (now - this.lastSpeechTime >= 3500)) {
+                    this.speakClosestObject(candidate);
                 }
             }
 
@@ -1647,12 +1709,20 @@
                 const phrase = `${obj.class} detected. ${stepText}, ${distVal} ${unitText} ${obj.direction.text}.`;
                 this.speakText(phrase, force);
 
-                this.lastSpeechTime = performance.now();
+                const now = performance.now();
+                this.lastSpeechTime = now;
                 this.lastSpokenTarget = {
                     class: obj.class,
                     directionCode: obj.direction.code,
                     steps: obj.steps
                 };
+
+                const targetKey = `${obj.class}_${obj.direction.code}`;
+                this.recentlySpokenTargets.set(targetKey, {
+                    time: now,
+                    steps: obj.steps,
+                    directionCode: obj.direction.code
+                });
             }
 
             playDangerAudioTone() {
