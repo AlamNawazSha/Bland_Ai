@@ -1218,11 +1218,28 @@
                 this.loadingStatus.innerText = msg;
             }
 
-            // Monocular Distance Estimation Calculation
+            // Enhanced Monocular Distance Estimation Engine
             calculateDistance(className, bbox) {
                 const [x, y, width, height] = bbox;
                 const spec = REAL_WORLD_SIZES[className] || REAL_WORLD_SIZES['default'];
 
+                // 1. Dynamic Real-World Size Estimation (Handling Upper Body, Sitting, & Full Standing)
+                let realSize = spec.size;
+                if (className === 'person') {
+                    const boxAspectRatio = height / Math.max(1, width);
+                    if (boxAspectRatio < 1.6) {
+                        // Upper body / Close-up Head & Torso
+                        realSize = 0.85;
+                    } else if (boxAspectRatio < 2.2) {
+                        // Half body / Sitting person
+                        realSize = 1.25;
+                    } else {
+                        // Full standing person
+                        realSize = 1.70;
+                    }
+                }
+
+                // 2. Select corresponding pixel dimension
                 let pixelSize = height;
                 if (spec.dimension === 'width') {
                     pixelSize = width;
@@ -1232,11 +1249,31 @@
 
                 if (pixelSize <= 0) return { meters: 0, steps: 0 };
 
-                // Pinhole Camera Distance Formula: Distance = (RealSize * FocalLength) / PixelSize
-                const meters = (spec.size * this.config.focalLength) / pixelSize;
+                // 3. Camera Resolution Normalization:
+                // Baseline focal length assumes a reference frame height of 720px.
+                // Scale focal length linearly with actual camera stream videoHeight.
+                const videoH = this.video.videoHeight || 720;
+                const normalizedFocalLength = this.config.focalLength * (videoH / 720.0);
+
+                // 4. Pinhole Camera Distance Formula: Distance = (RealSize * NormalizedFocalLength) / PixelSize
+                let meters = (realSize * normalizedFocalLength) / pixelSize;
+
+                // 5. Exponential Moving Average (EMA) Distance Smoother to eliminate frame flicker
+                const trackerKey = `${className}_${Math.round(x / 80)}`;
+                if (this.distanceTracker && this.distanceTracker.has(trackerKey)) {
+                    const prevMeters = this.distanceTracker.get(trackerKey);
+                    // Smooth distance transition
+                    meters = 0.70 * prevMeters + 0.30 * meters;
+                } else if (!this.distanceTracker) {
+                    this.distanceTracker = new Map();
+                }
+                this.distanceTracker.set(trackerKey, meters);
+
+                // Clamp distance to realistic physical range (0.2m to 20m)
+                meters = Math.max(0.2, Math.min(20.0, meters));
                 const steps = Math.round(meters / this.config.stepLength);
 
-                return { meters, steps, pixelSize, realSize: spec.size };
+                return { meters, steps, pixelSize, realSize };
             }
 
             calculateDirection(bbox) {
@@ -1846,8 +1883,10 @@
                     return;
                 }
 
-                const calculatedFocalLength = (pixelSize * this.calibrationTargetDistance) / spec.size;
-                this.config.focalLength = Math.round(calculatedFocalLength);
+                const realSize = targetObj.realSize || spec.size;
+                const videoH = this.video.videoHeight || 720;
+                const rawFocalLength = (pixelSize * this.calibrationTargetDistance) / realSize;
+                this.config.focalLength = Math.round(rawFocalLength / (videoH / 720.0));
                 this.config.isCalibrated = true;
                 this.saveConfig();
 
