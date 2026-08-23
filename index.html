@@ -1357,29 +1357,29 @@
                             turnAction = 'LEFT';
                             steerText = '⬅ TURN LEFT';
                             icon = 'fa-arrow-left';
-                            voiceText = `Danger straight ahead! ${target.class} in ${target.steps} steps. Turn left! Left side is safe!`;
+                            voiceText = `Danger straight ahead. Turn left now to stay safe.`;
                         } else {
                             turnAction = 'RIGHT';
                             steerText = 'TURN RIGHT ➔';
                             icon = 'fa-arrow-right';
-                            voiceText = `Danger straight ahead! ${target.class} in ${target.steps} steps. Turn right! Right side is safe!`;
+                            voiceText = `Danger straight ahead. Turn right now to stay safe.`;
                         }
                         if (leftMinDist <= 1.3 && rightMinDist <= 1.3) {
                             turnAction = 'STOP';
                             steerText = '🛑 TURN AROUND';
                             icon = 'fa-hand';
-                            voiceText = `Danger straight ahead! ${target.class} in ${target.steps} steps and sides are blocked. Stop and turn around!`;
+                            voiceText = `Danger straight ahead. Stop and turn around immediately.`;
                         }
                     } else if (target.direction.corridor === 'LEFT') {
                         turnAction = 'RIGHT';
                         steerText = 'TURN RIGHT ➔';
                         icon = 'fa-arrow-right';
-                        voiceText = `Danger on your left! ${target.class} close on your left. Turn right! Right side is safe!`;
+                        voiceText = `Danger on your left. Turn right now to stay safe.`;
                     } else if (target.direction.corridor === 'RIGHT') {
                         turnAction = 'LEFT';
                         steerText = '⬅ TURN LEFT';
                         icon = 'fa-arrow-left';
-                        voiceText = `Danger on your right! ${target.class} close on your right. Turn left! Left side is safe!`;
+                        voiceText = `Danger on your right. Turn left now to stay safe.`;
                     }
 
                     return {
@@ -1403,23 +1403,23 @@
                             turnAction = 'LEFT';
                             steerText = 'VEER LEFT ↖';
                             icon = 'fa-arrow-up-left';
-                            voiceText = `Caution ahead! ${target.class} ${target.steps} steps ahead. Turn left to avoid.`;
+                            voiceText = `Caution ahead. Turn left to avoid ${target.class}.`;
                         } else {
                             turnAction = 'RIGHT';
                             steerText = 'VEER RIGHT ↗';
                             icon = 'fa-arrow-up-right';
-                            voiceText = `Caution ahead! ${target.class} ${target.steps} steps ahead. Turn right to avoid.`;
+                            voiceText = `Caution ahead. Turn right to avoid ${target.class}.`;
                         }
                     } else if (target.direction.corridor === 'LEFT') {
                         turnAction = 'RIGHT';
                         steerText = 'VEER RIGHT ↗';
                         icon = 'fa-arrow-up-right';
-                        voiceText = `Caution on left! ${target.class} on your left. Turn right, right side is clear.`;
+                        voiceText = `Caution on left. Turn right to stay clear of ${target.class}.`;
                     } else if (target.direction.corridor === 'RIGHT') {
                         turnAction = 'LEFT';
                         steerText = 'VEER LEFT ↖';
                         icon = 'fa-arrow-up-left';
-                        voiceText = `Caution on right! ${target.class} on your right. Turn left, left side is clear.`;
+                        voiceText = `Caution on right. Turn left to stay clear of ${target.class}.`;
                     }
 
                     return {
@@ -1458,7 +1458,7 @@
                     if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
                         this.triggerHaptic('danger');
                         this.playDangerAudioTone();
-                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.25);
+                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.05);
                         this.lastSpeechTime = now;
                     }
                     this.lastHazardLevel = 'DANGER';
