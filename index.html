@@ -1457,6 +1457,7 @@
 
                     if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
                         this.triggerHaptic('danger');
+                        this.playDangerAudioTone();
                         this.speakText(hazardInfo.steering.voiceInstruction, true, 1.25);
                         this.lastSpeechTime = now;
                     }
@@ -1654,18 +1655,68 @@
                 };
             }
 
+            playDangerAudioTone() {
+                try {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (!AudioCtx) return;
+                    const ctx = new AudioCtx();
+                    if (ctx.state === 'suspended') ctx.resume();
+
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(880, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.25);
+
+                    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                } catch(e) {
+                    console.warn("Audio tone error:", e);
+                }
+            }
+
             speakText(text, force = false, speechRate = 1.0) {
                 if (!('speechSynthesis' in window)) return;
-                if (force || window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
+                if (!this.config.voiceEnabled && !force) return;
+
+                try {
+                    // Resume speech engine if browser engine is suspended
+                    if (window.speechSynthesis.paused) {
+                        window.speechSynthesis.resume();
+                    }
+
+                    if (force || window.speechSynthesis.speaking) {
+                        window.speechSynthesis.cancel();
+                    }
+
+                    // Async timeout ensures cancel() finishes processing before queueing new utterance
+                    setTimeout(() => {
+                        const utterance = new SpeechSynthesisUtterance(text);
+                        utterance.rate = speechRate;
+                        utterance.pitch = 1.0;
+                        utterance.lang = 'en-US';
+
+                        // Retain reference on instance to prevent Garbage Collection bug in Chrome/Safari
+                        this.currentUtterance = utterance;
+
+                        utterance.onend = () => {
+                            this.currentUtterance = null;
+                        };
+                        utterance.onerror = (e) => {
+                            console.warn("Speech synthesis error:", e);
+                            this.currentUtterance = null;
+                        };
+
+                        window.speechSynthesis.speak(utterance);
+                    }, force ? 60 : 10);
+                } catch (e) {
+                    console.warn("speakText failed:", e);
                 }
-
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = speechRate;
-                utterance.pitch = 1.0;
-                utterance.lang = 'en-US';
-
-                window.speechSynthesis.speak(utterance);
             }
 
             toggleVoice() {
