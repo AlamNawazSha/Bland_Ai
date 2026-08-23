@@ -1312,13 +1312,13 @@
             }
 
             // AI Collision Avoidance Corridor Analysis
-            // AI Proactive Safe Corridor & Turn Guidance Engine
+            // AI Proactive Safe Corridor & Voice Guidance Engine
             analyzeCollisionHazards(objects) {
                 if (objects.length === 0) {
                     return {
                         level: 'CLEAR',
                         closest: null,
-                        steering: { text: 'PATH CLEAR ⬆', turnAction: 'STRAIGHT', voiceInstruction: 'Path clear ahead.', icon: 'fa-arrow-up' },
+                        steering: { text: 'PATH CLEAR ⬆', turnAction: 'STRAIGHT', voiceInstruction: 'Path clear. Continue straight ahead.', icon: 'fa-arrow-up' },
                         leftDist: Infinity, centerDist: Infinity, rightDist: Infinity
                     };
                 }
@@ -1344,8 +1344,8 @@
                 const closestOverall = objects[0];
                 const nearDist = closestOverall.distanceMeters;
 
-                // Priority 1: DANGER HAZARD (Any object <= 1.3m, or center object <= 1.5m)
-                if (nearDist <= 1.3 || (closestCenterObj && closestCenterObj.distanceMeters <= 1.5)) {
+                // UNSAFE DANGER ZONE (Any object <= 1.5m or center object <= 1.8m)
+                if (nearDist <= 1.5 || (closestCenterObj && closestCenterObj.distanceMeters <= 1.8)) {
                     const target = closestCenterObj || closestOverall;
                     let turnAction = 'RIGHT';
                     let steerText = 'TURN RIGHT ➔';
@@ -1357,29 +1357,29 @@
                             turnAction = 'LEFT';
                             steerText = '⬅ TURN LEFT';
                             icon = 'fa-arrow-left';
-                            voiceText = `Danger! ${target.class} ${target.steps} steps straight ahead. Turn left now!`;
+                            voiceText = `Warning! ${target.class} ${target.steps} steps straight ahead. Turn left! Left side is safe!`;
                         } else {
                             turnAction = 'RIGHT';
                             steerText = 'TURN RIGHT ➔';
                             icon = 'fa-arrow-right';
-                            voiceText = `Danger! ${target.class} ${target.steps} steps straight ahead. Turn right now!`;
+                            voiceText = `Warning! ${target.class} ${target.steps} steps straight ahead. Turn right! Right side is safe!`;
                         }
-                        if (leftMinDist <= 1.2 && rightMinDist <= 1.2) {
+                        if (leftMinDist <= 1.3 && rightMinDist <= 1.3) {
                             turnAction = 'STOP';
                             steerText = '🛑 TURN AROUND';
                             icon = 'fa-hand';
-                            voiceText = `Danger! ${target.class} ahead and side paths blocked. Stop or turn around!`;
+                            voiceText = `Danger! ${target.class} ahead and side paths blocked. Stop and turn around!`;
                         }
                     } else if (target.direction.corridor === 'LEFT') {
                         turnAction = 'RIGHT';
                         steerText = 'TURN RIGHT ➔';
                         icon = 'fa-arrow-right';
-                        voiceText = `Obstacle close on your left. Turn right to stay safe!`;
+                        voiceText = `Attention! ${target.class} close on your left! Turn right, right side is safe!`;
                     } else if (target.direction.corridor === 'RIGHT') {
                         turnAction = 'LEFT';
                         steerText = '⬅ TURN LEFT';
                         icon = 'fa-arrow-left';
-                        voiceText = `Obstacle close on your right. Turn left to stay safe!`;
+                        voiceText = `Attention! ${target.class} close on your right! Turn left, left side is safe!`;
                     }
 
                     return {
@@ -1390,8 +1390,8 @@
                     };
                 }
 
-                // Priority 2: CAUTION HAZARD (Any object <= 2.2m)
-                if (nearDist <= 2.2) {
+                // UNSAFE CAUTION ZONE (Any object <= 2.5m)
+                if (nearDist <= 2.5) {
                     const target = closestCenterObj || closestOverall;
                     let turnAction = 'RIGHT';
                     let steerText = 'VEER RIGHT ↗';
@@ -1403,23 +1403,23 @@
                             turnAction = 'LEFT';
                             steerText = 'VEER LEFT ↖';
                             icon = 'fa-arrow-up-left';
-                            voiceText = `Caution: ${target.class} ${target.steps} steps ahead. Turn left to avoid.`;
+                            voiceText = `Caution! ${target.class} ${target.steps} steps ahead. Turn left, left path is clear.`;
                         } else {
                             turnAction = 'RIGHT';
                             steerText = 'VEER RIGHT ↗';
                             icon = 'fa-arrow-up-right';
-                            voiceText = `Caution: ${target.class} ${target.steps} steps ahead. Turn right to avoid.`;
+                            voiceText = `Caution! ${target.class} ${target.steps} steps ahead. Turn right, right path is clear.`;
                         }
                     } else if (target.direction.corridor === 'LEFT') {
                         turnAction = 'RIGHT';
                         steerText = 'VEER RIGHT ↗';
                         icon = 'fa-arrow-up-right';
-                        voiceText = `Caution: ${target.class} on your left. Turn right to stay clear.`;
+                        voiceText = `Caution! ${target.class} on your left. Turn right, right side is safe.`;
                     } else if (target.direction.corridor === 'RIGHT') {
                         turnAction = 'LEFT';
                         steerText = 'VEER LEFT ↖';
                         icon = 'fa-arrow-up-left';
-                        voiceText = `Caution: ${target.class} on your right. Turn left to stay clear.`;
+                        voiceText = `Caution! ${target.class} on your right. Turn left, left side is safe.`;
                     }
 
                     return {
@@ -1430,7 +1430,7 @@
                     };
                 }
 
-                // Priority 3: CLEAR PATH
+                // SAFE CLEAR PATH
                 return {
                     level: 'CLEAR',
                     closest: closestOverall,
@@ -1441,7 +1441,8 @@
 
             handleCollisionGuidance(hazardInfo) {
                 const now = performance.now();
-                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
+                // When in unsafe zone, use shorter speech interval (1.8s) for real-time safety response
+                const unsafeIntervalMs = 1800;
 
                 // Priority 1: IMMINENT DANGER COLLISION ALERT
                 if (hazardInfo.level === 'DANGER' && hazardInfo.closest) {
@@ -1454,16 +1455,16 @@
                     document.getElementById('steering-text').innerText = hazardInfo.steering.text;
                     document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
 
-                    if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > 2500)) {
+                    if (this.lastHazardLevel !== 'DANGER' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
                         this.triggerHaptic('danger');
-                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.2);
+                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.25);
                         this.lastSpeechTime = now;
                     }
                     this.lastHazardLevel = 'DANGER';
                     return;
                 }
 
-                // Priority 2: CAUTION HAZARD
+                // Priority 2: CAUTION HAZARD (Unsafe distance)
                 if (hazardInfo.level === 'CAUTION' && hazardInfo.closest) {
                     this.appViewport.className = "app-viewport hazard-caution";
                     const hazardBanner = document.getElementById('hazard-banner');
@@ -1473,16 +1474,16 @@
                     document.getElementById('steering-text').innerText = hazardInfo.steering.text;
                     document.getElementById('steering-icon').className = `fa-solid ${hazardInfo.steering.icon}`;
 
-                    if (this.lastHazardLevel !== 'CAUTION' || (now - this.lastSpeechTime > cooldownMs)) {
+                    if (this.lastHazardLevel !== 'CAUTION' || (now - this.lastSpeechTime > unsafeIntervalMs)) {
                         this.triggerHaptic('caution');
-                        this.speakText(hazardInfo.steering.voiceInstruction, false, 1.0);
+                        this.speakText(hazardInfo.steering.voiceInstruction, true, 1.1);
                         this.lastSpeechTime = now;
                     }
                     this.lastHazardLevel = 'CAUTION';
                     return;
                 }
 
-                // Priority 3: CLEAR PATH
+                // Priority 3: SAFE CLEAR PATH
                 this.appViewport.className = "app-viewport";
                 const hazardBanner = document.getElementById('hazard-banner');
                 hazardBanner.className = "hazard-banner clear";
@@ -1492,13 +1493,14 @@
 
                 if (this.lastHazardLevel !== 'CLEAR' || (now - this.lastClearPathAnnounce > 10000)) {
                     if (this.lastHazardLevel !== 'CLEAR') {
-                        this.speakText("Path clear. Continue walking straight.", false, 1.0);
+                        this.speakText("Path clear! Continue walking straight ahead.", false, 1.0);
                         this.lastSpeechTime = now;
                     }
                     this.lastClearPathAnnounce = now;
                 }
                 this.lastHazardLevel = 'CLEAR';
 
+                const cooldownMs = (this.config.voiceInterval || 4) * 1000;
                 if (hazardInfo.closest && (now - this.lastSpeechTime >= cooldownMs)) {
                     this.handleVoiceAnnouncements(hazardInfo.closest);
                 }
